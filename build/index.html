@@ -1,0 +1,4446 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Ферма Пузырей</title>
+  <!-- VK Bridge: обязателен для запуска внутри ВК (VKWebAppInit) -->
+  <script src="vk-bridge.min.js"></script>
+  <style>
+    :root {
+      --earth: #3a2f1f;
+      --soil: #5c4630;
+      --green: #5c8c3f;
+      --wheat: #e8d5a3;
+      --accent: #c17d3a;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    html, body {
+      background: #1f160f;
+      color: #f4e9d8;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+      touch-action: none; /* предотвращает swipe-to-refresh и лишние жесты */
+      width: 100%;
+      height: 100%;
+    }
+
+    img, canvas {
+      -webkit-user-drag: none;
+      user-drag: none;
+      pointer-events: auto;
+    }
+    
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Обёртка поля (центровка) */
+    #play-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      max-width: 100%;
+      max-height: 100%;
+      position: relative;
+      flex-shrink: 1;
+      min-width: 0;
+    }
+
+    /* Viewport: грядка + снизу отдельная «полка» под инструменты (без пустого подвала canvas) */
+    #canvas-viewport {
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 1;
+      min-height: 0;
+      border: 8px solid #3a2f1f;
+      border-radius: 12px;
+      box-shadow: 0 0 0 4px #5c4630, 0 20px 60px rgba(0,0,0,0.7);
+      background: #2c2118;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    /* Инструменты — сразу под грядкой; ширина = игровая зона (задаётся в resizeCanvas) */
+    #tools-hud {
+      position: absolute !important;
+      left: 0;
+      right: auto;
+      bottom: 8px;
+      top: auto !important;
+      transform: none !important;
+      width: auto;
+      max-width: none;
+      box-sizing: border-box;
+      background: linear-gradient(180deg, #5c4630 0%, #3a2f1f 55%, #2c2118 100%);
+      border: 3px solid #e8d5a3;
+      border-radius: 14px;
+      padding: 6px 10px 8px;
+      box-shadow:
+        0 4px 0 #1f160f,
+        inset 0 1px 0 rgba(255,245,210,0.12);
+      pointer-events: auto;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      z-index: 50;
+    }
+
+    /* HUD — крупная вертикальная панель справа (на всю высоту грядки) */
+    #ingame-hud {
+      position: absolute !important;
+      right: 6px;
+      left: auto !important;
+      top: 4% !important;
+      bottom: auto;
+      transform: none !important;
+      z-index: 55;
+      pointer-events: auto;
+      text-align: center;
+      max-width: none;
+      width: auto;
+      height: auto;
+      box-sizing: border-box;
+    }
+
+    #ingame-hud .hud-bar {
+      background: rgba(58, 47, 31, 0.96);
+      border: 3px solid #e8d5a3;
+      border-radius: 18px;
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: space-evenly;
+      gap: 0;
+      box-shadow: 0 5px 0 #1f160f, 0 10px 22px rgba(0,0,0,0.4);
+      flex-wrap: nowrap;
+      max-width: none;
+      overflow: hidden;
+      min-width: 78px;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    #ingame-hud .hud-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      white-space: nowrap;
+      flex: 1 1 0;
+      min-height: 0;
+      padding: 6px 4px;
+    }
+
+    #ingame-hud .hud-stat-label {
+      font-size: 12px;
+      color: #c17d3a;
+      letter-spacing: 0.6px;
+      line-height: 1;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    #ingame-hud .hud-stat-value {
+      font-size: 22px;
+      font-weight: 800;
+      color: #e8d5a3;
+      line-height: 1;
+    }
+
+    #ingame-hud #hud-score { color: #fff; font-size: 20px; }
+    #ingame-hud #hud-combo { color: #5c8c3f; font-size: 22px; }
+
+    /* Горизонтальные полоски-перекрытия между блоками */
+    #ingame-hud .hud-divider {
+      width: 100%;
+      height: 3px;
+      min-height: 3px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        #c17d3a 12%,
+        #e8d5a3 50%,
+        #c17d3a 88%,
+        transparent 100%);
+      opacity: 0.95;
+      flex-shrink: 0;
+      border-radius: 0;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.35);
+    }
+
+    #ingame-hud .hud-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex: 1 1 0;
+      min-height: 0;
+      padding: 8px 4px;
+    }
+
+    #ingame-hud #mute-btn,
+    #ingame-hud button[aria-label="Пауза"] {
+      background: #3a2f1f;
+      border: 2.5px solid #e8d5a3;
+      color: #e8d5a3;
+      border-radius: 999px;
+      width: 44px;
+      height: 44px;
+      font-size: 20px;
+      cursor: pointer;
+      flex-shrink: 0;
+      line-height: 1;
+      padding: 0;
+      box-shadow: 0 3px 0 #1f160f;
+    }
+
+    #tools-hud .tools-title {
+      display: block;
+      color: #c17d3a;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      margin: 0 0 6px;
+      letter-spacing: 1px;
+      width: 100%;
+      line-height: 1.1;
+      text-transform: uppercase;
+    }
+
+    #tool-buttons {
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap;
+      justify-content: stretch;
+      align-items: stretch;
+      gap: 8px;
+      width: 100%;
+    }
+
+    #tool-buttons .btn.tool {
+      flex: 1 1 0;
+      min-width: 0;
+      justify-content: center;
+      align-items: center;
+      flex-direction: row;
+      gap: 6px;
+      white-space: nowrap;
+      padding: 10px 8px;
+      font-size: 12px;
+      margin: 0;
+      border-radius: 12px;
+    }
+
+    #tool-buttons .btn.tool .tool-label-text {
+      display: inline;
+      text-align: center;
+      padding: 0;
+      font-size: 12px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    
+    canvas {
+      display: block;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      image-rendering: crisp-edges;
+      background: #2c2118;
+    }
+    
+    .overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      background: rgba(31, 22, 15, 0.88);
+      backdrop-filter: blur(3px);
+      padding: max(8px, env(safe-area-inset-top, 0px)) 8px max(8px, env(safe-area-inset-bottom, 0px));
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      box-sizing: border-box;
+    }
+    
+    .overlay.active { display: flex; }
+    
+    .panel {
+      background: linear-gradient(165deg, #6a5238 0%, #5c4630 40%, #3a2f1f 100%);
+      border: 5px solid #e8d5a3;
+      border-radius: 18px;
+      padding: 24px 28px;
+      min-width: min(420px, calc(100vw - 24px));
+      max-width: min(560px, calc(100vw - 16px));
+      width: min(520px, calc(100vw - 16px));
+      box-sizing: border-box;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.6),
+                  inset 0 2px 0 rgba(255,255,255,0.12),
+                  inset 0 -4px 0 rgba(0,0,0,0.3);
+      text-align: center;
+      max-height: min(90dvh, 880px);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: auto;
+    }
+    
+    .panel h1 {
+      font-size: 28px;
+      color: #e8d5a3;
+      text-shadow: 3px 3px 0 #1f160f;
+      margin-bottom: 12px;
+      letter-spacing: 1px;
+      line-height: 1.2;
+    }
+    
+    .panel h2 {
+      font-size: 20px;
+      color: #c17d3a;
+      margin-bottom: 16px;
+    }
+
+    .menu-hero {
+      margin-bottom: 8px;
+    }
+    .menu-hero .menu-emoji {
+      font-size: clamp(36px, 10vw, 48px);
+      line-height: 1;
+      margin-bottom: 6px;
+      filter: drop-shadow(0 4px 0 rgba(0,0,0,0.35));
+    }
+    .menu-tagline {
+      color: #e8d5a3;
+      font-size: clamp(13px, 3.5vw, 15px);
+      opacity: 0.95;
+      margin-bottom: 4px;
+    }
+    .menu-sub {
+      color: #c17d3a;
+      font-size: clamp(12px, 3vw, 13px);
+      margin-bottom: 14px;
+      opacity: 0.9;
+    }
+    .menu-primary {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      margin: 4px 0 12px;
+    }
+    .menu-primary .btn {
+      width: 100%;
+      min-width: 0 !important;
+      margin: 0;
+    }
+    .menu-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .menu-grid .btn {
+      width: 100%;
+      min-width: 0 !important;
+      margin: 0;
+      padding: 11px 10px;
+      font-size: 12px;
+    }
+    .menu-social {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .menu-social .btn {
+      min-width: 0 !important;
+      margin: 0;
+      padding: 8px 12px;
+      font-size: 11px;
+      flex: 1 1 auto;
+    }
+    .menu-footer {
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(232, 213, 163, 0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .btn {
+      background: linear-gradient(#c17d3a, #8c5528);
+      color: #fff;
+      border: 3px solid #e8d5a3;
+      border-radius: 12px;
+      padding: 12px 22px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 6px;
+      min-width: 160px;
+      box-shadow: 0 5px 0 #5c4630;
+      transition: transform 0.05s, box-shadow 0.05s, filter 0.15s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    .btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 #5c4630;
+    }
+    
+    .btn.secondary {
+      background: linear-gradient(#5c8c3f, #3f5f2a);
+      min-width: 140px;
+    }
+    
+    .btn.tool {
+      min-width: 0;
+      padding: 8px 12px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+    }
+    
+    .stat {
+      background: #2c2118;
+      border: 3px solid #e8d5a3;
+      border-radius: 8px;
+      padding: 10px 18px;
+      margin: 8px 0;
+      font-size: 15px;
+    }
+    
+    .hud {
+      position: absolute;
+      z-index: 50;
+      pointer-events: none;
+    }
+    
+    .tool-icon {
+      width: 26px;
+      height: 26px;
+      image-rendering: crisp-edges;
+    }
+    
+    .howto {
+      text-align: left;
+      font-size: 14px;
+      line-height: 1.55;
+      background: #2c2118;
+      border: 3px solid #8c5528;
+      padding: 16px 20px;
+      border-radius: 10px;
+      margin: 16px 0;
+    }
+    
+    .howto li { margin: 7px 0; }
+    
+    .level-badge {
+      display: inline-block;
+      background: #c17d3a;
+      color: #fff;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-weight: bold;
+      font-size: 13px;
+      border: 2px solid #e8d5a3;
+    }
+
+    /* ======================= МОБИЛЬНАЯ АДАПТАЦИЯ ======================= */
+    .mobile .hud { font-size: 12px; }
+
+    .mobile #canvas-viewport {
+      border-width: 3px !important;
+      border-radius: 8px !important;
+      box-shadow: 0 0 0 2px #5c4630, 0 8px 20px rgba(0,0,0,0.55);
+    }
+
+    .mobile #ingame-hud {
+      right: 3px !important;
+      left: auto !important;
+      transform: none !important;
+      max-width: none;
+      box-sizing: border-box;
+      z-index: 60;
+    }
+
+    .mobile #ingame-hud .hud-bar {
+      padding: 6px 4px !important;
+      gap: 0 !important;
+      flex-direction: column !important;
+      flex-wrap: nowrap !important;
+      justify-content: space-evenly !important;
+      min-width: 58px;
+      border-width: 2px !important;
+      border-radius: 14px !important;
+      box-shadow: 0 3px 0 #1f160f !important;
+      height: 100% !important;
+    }
+
+    .mobile #ingame-hud .hud-stat {
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 3px !important;
+      padding: 4px 2px !important;
+    }
+
+    .mobile #ingame-hud .hud-stat-label { font-size: 10px !important; }
+    .mobile #ingame-hud .hud-stat-value { font-size: 16px !important; }
+    .mobile #ingame-hud #hud-score { font-size: 15px !important; }
+    .mobile #ingame-hud #hud-combo { font-size: 16px !important; }
+    .mobile #ingame-hud .hud-divider {
+      width: 100% !important;
+      height: 2.5px !important;
+      min-height: 2.5px !important;
+    }
+    .mobile #ingame-hud .hud-actions {
+      gap: 8px !important;
+      padding: 6px 2px !important;
+    }
+    .mobile #ingame-hud #mute-btn,
+    .mobile #ingame-hud button[aria-label="Пауза"] {
+      width: 36px !important;
+      height: 36px !important;
+      font-size: 16px !important;
+    }
+
+    .mobile #tools-hud {
+      bottom: 5px !important;
+      padding: 4px 6px 5px;
+      border-width: 2px !important;
+      z-index: 60;
+      gap: 0;
+    }
+
+    .mobile .btn.tool {
+      min-width: 0 !important;
+      width: auto;
+      max-width: none;
+      padding: 8px 4px !important;
+      font-size: 10px !important;
+      border-width: 2px !important;
+      flex-direction: column !important;
+      gap: 2px !important;
+      min-height: 42px;
+    }
+
+    .mobile .tool-icon { width: 16px; height: 16px; }
+    .mobile .tool-label-text {
+      display: none !important; /* на узком экране — только иконки */
+    }
+    .mobile #tools-hud > .tools-title {
+      display: block !important;
+      font-size: 9px !important;
+      margin-bottom: 4px !important;
+      letter-spacing: 0.6px;
+    }
+    .mobile #tool-buttons { gap: 5px !important; }
+
+    .mobile .panel {
+      min-width: 0 !important;
+      width: calc(100vw - 20px) !important;
+      max-width: calc(100vw - 20px) !important;
+      padding: 18px 14px !important;
+      border-width: 4px;
+      margin: 0 auto;
+      max-height: min(88dvh, 900px);
+    }
+
+    .mobile .panel h1 { font-size: clamp(20px, 6vw, 24px) !important; letter-spacing: 0.3px; }
+    .mobile .panel h2 { font-size: 16px !important; }
+
+    .mobile .btn {
+      min-width: 0 !important;
+      max-width: 100%;
+      padding: 12px 14px;
+      font-size: 13px;
+      margin: 4px;
+      box-shadow: 0 4px 0 #5c4630;
+    }
+
+    .mobile .btn.secondary { min-width: 0 !important; font-size: 12px; padding: 10px 12px; }
+
+    .mobile .overlay {
+      align-items: center;
+      justify-content: center;
+      padding: max(6px, env(safe-area-inset-top, 0px)) 6px max(6px, env(safe-area-inset-bottom, 0px));
+    }
+
+    .mobile .howto { font-size: 12px; padding: 10px 12px; line-height: 1.45; }
+    .mobile #dialog-overlay .panel { min-width: 0 !important; width: calc(100vw - 24px) !important; }
+
+    .mobile .menu-grid {
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .mobile .menu-grid .btn {
+      font-size: 11px;
+      padding: 10px 6px;
+    }
+
+    /* Портрет / альбом: HUD справа вертикально, инструменты внизу */
+    .mobile.portrait #ingame-hud {
+      right: 2px !important;
+      z-index: 60;
+    }
+
+    .mobile.portrait #play-stack {
+      gap: 0;
+      width: 100%;
+      padding: 0 4px;
+      box-sizing: border-box;
+    }
+
+    .mobile.portrait #tools-hud {
+      bottom: 4px !important;
+      padding: 4px 5px 5px;
+    }
+
+    .mobile.portrait .btn.tool {
+      min-width: 0 !important;
+      min-height: 42px;
+      padding: 6px 3px !important;
+      font-size: 10px !important;
+      justify-content: center;
+      flex-direction: column !important;
+      gap: 2px;
+    }
+
+    .mobile.landscape #tool-buttons {
+      flex-direction: row !important;
+      gap: 5px !important;
+    }
+
+    /* Подсказка поворота — узкая полоска, не блокирует игру */
+    #rotate-prompt {
+      pointer-events: none !important;
+    }
+    .mobile.portrait #rotate-prompt {
+      position: absolute !important;
+      left: 50% !important;
+      right: auto !important;
+      transform: translateX(-50%);
+      width: auto !important;
+      max-width: 90%;
+      height: auto !important;
+      min-height: 0 !important;
+      background: rgba(31, 22, 15, 0.82) !important;
+      border: 1px solid rgba(232, 213, 163, 0.55);
+      border-radius: 999px;
+      padding: 3px 10px !important;
+      font-size: 10px !important;
+      z-index: 55 !important;
+      top: max(36px, calc(env(safe-area-inset-top, 0px) + 34px)) !important;
+      opacity: 0.85;
+    }
+    .mobile.portrait #rotate-prompt .rotate-icon { display: none; }
+
+    /* In-app legal viewer (Android: window.open / OpenURL часто блокируются) */
+    #legal-viewer {
+      z-index: 450;
+    }
+    #legal-viewer .panel {
+      max-width: min(640px, calc(100vw - 16px));
+      width: min(640px, calc(100vw - 16px));
+      text-align: left;
+      max-height: min(92dvh, 920px);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 14px 14px;
+    }
+    #legal-viewer h2 {
+      text-align: center;
+      margin-bottom: 10px;
+      flex-shrink: 0;
+    }
+    #legal-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+      background: #f6f3eb;
+      color: #1a1a1a;
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.55;
+      border: 2px solid #e8d5a3;
+      min-height: 180px;
+      max-height: min(62dvh, 560px);
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    #legal-viewer.overlay {
+      touch-action: auto;
+    }
+    #legal-viewer .panel {
+      touch-action: auto;
+    }
+    #legal-body h1 { font-size: 1.15rem; color: #3a2f1f; margin: 0 0 10px; text-shadow: none; letter-spacing: 0; }
+    #legal-body h2 { font-size: 1rem; color: #5c4630; margin: 14px 0 6px; text-align: left; }
+    #legal-body p, #legal-body li { margin: 6px 0; }
+    #legal-body a { color: #8c5528; }
+    #legal-viewer .legal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+      flex-shrink: 0;
+    }
+    #legal-viewer .legal-actions .btn {
+      min-width: 0;
+      margin: 0;
+      flex: 1 1 120px;
+    }
+
+    /* Экран загрузки — до LoadingAPI.ready() меню недоступно */
+    #boot-loading {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1f160f;
+      flex-direction: column;
+      gap: 16px;
+      color: #e8d5a3;
+      pointer-events: all;
+    }
+    #boot-loading.hidden { display: none; }
+    #boot-loading .boot-title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-shadow: 2px 2px 0 #1f160f;
+    }
+    #boot-loading .boot-bar {
+      width: 220px;
+      height: 10px;
+      background: #2c2118;
+      border: 3px solid #e8d5a3;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    #boot-loading .boot-bar-fill {
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, #c17d3a, #5c8c3f);
+      border-radius: 999px;
+      animation: bootPulse 1.1s ease-in-out infinite;
+    }
+    @keyframes bootPulse {
+      0% { width: 25%; margin-left: 0; }
+      50% { width: 55%; margin-left: 20%; }
+      100% { width: 25%; margin-left: 0; }
+    }
+
+    /* In-game dialog (вместо alert/confirm) */
+    #dialog-overlay {
+      z-index: 400;
+    }
+    #dialog-overlay .panel {
+      min-width: 360px;
+      max-width: 520px;
+    }
+    #dialog-message {
+      margin: 12px 0 20px;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #f4e9d8;
+    }
+    #dialog-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    /* Подсказка поворота в портрете делаем компактной */
+    .mobile.portrait #rotate-prompt {
+      height: auto;
+      padding: 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <!-- До LoadingAPI.ready() — только загрузка, без кликабельного меню -->
+  <div id="boot-loading" aria-live="polite">
+    <div class="boot-title">🌱 Ферма Пузырей</div>
+    <div class="boot-bar"><div class="boot-bar-fill"></div></div>
+    <div style="font-size:14px; opacity:0.85;">Загрузка…</div>
+  </div>
+
+  <div id="game-container">
+    <div id="play-stack">
+      <div id="canvas-viewport">
+        <canvas id="canvas" width="980" height="700" aria-label="Ферма Пузырей — игра"></canvas>
+        <!-- HUD вертикально справа (на почве рядом с грядкой) -->
+        <div id="ingame-hud" class="hud" style="display:none;" aria-label="Статус игры">
+          <div class="hud-bar">
+            <div class="hud-stat">
+              <span class="hud-stat-label">УР</span>
+              <span id="hud-level" class="hud-stat-value">1</span>
+            </div>
+            <div class="hud-divider"></div>
+            <div class="hud-stat">
+              <span class="hud-stat-label">ОЧКИ</span>
+              <span id="hud-score" class="hud-stat-value">0</span>
+            </div>
+            <div class="hud-divider"></div>
+            <div class="hud-stat">
+              <span class="hud-stat-label">КОМБО</span>
+              <span id="hud-combo" class="hud-stat-value">x1</span>
+            </div>
+            <div class="hud-divider"></div>
+            <div class="hud-stat">
+              <span class="hud-stat-label">СПУСК</span>
+              <span id="hud-shots" class="hud-stat-value">0</span>
+            </div>
+            <div class="hud-divider"></div>
+            <div class="hud-actions">
+              <button id="mute-btn" type="button" onclick="toggleMute()" aria-label="Звук">🔊</button>
+              <button type="button" onclick="pauseGame()" aria-label="Пауза">⏸</button>
+            </div>
+          </div>
+        </div>
+        <!-- Инструменты внутри рамки поля, внизу на почве, в ряд -->
+        <div id="tools-hud" class="hud" style="display:none;" aria-label="Инструменты">
+          <div class="tools-title">ИНСТРУМЕНТЫ</div>
+          <div id="tool-buttons"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Подсказка ориентации (не блокирует игру) -->
+    <div id="rotate-prompt" class="hud" style="display:none; color:#e8d5a3; text-align:center;">
+      <span class="rotate-icon" style="margin-right:4px;">📱</span><span id="rotate-prompt-text">Удобнее в альбоме</span>
+    </div>
+  </div>
+
+  <!-- Main Menu (не active до конца init — п. 1.19 / 2.14) -->
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <div class="menu-hero">
+        <div class="menu-emoji" aria-hidden="true">🌱🌾</div>
+        <h1 style="font-size:clamp(22px,6vw,30px); margin-bottom:6px;">Ферма Пузырей</h1>
+        <p class="menu-tagline">Собирай группы овощных пузырьков</p>
+        <p class="menu-sub">Аркада · головоломка · 0+</p>
+      </div>
+      
+      <div class="menu-primary">
+        <button id="continue-btn" class="btn" onclick="continueSavedGame()"
+                style="background: linear-gradient(#5c8c3f, #3f5f2a); display:none;">
+          ПРОДОЛЖИТЬ УРОВЕНЬ
+        </button>
+        <button class="btn" onclick="startGame()" style="font-size:16px; padding:14px 20px;">НОВАЯ ИГРА</button>
+      </div>
+      
+      <div class="menu-grid">
+        <button class="btn secondary" onclick="showHowTo()">КАК ИГРАТЬ</button>
+        <button class="btn secondary" onclick="showStats()">СТАТИСТИКА</button>
+        <button class="btn secondary" onclick="showAbout()">О ИГРЕ</button>
+        <button class="btn secondary" onclick="showVkLeaderboard()">ЛИДЕРБОРД</button>
+      </div>
+      <!-- Соц. механики — только опционально, не блокируют игру (п. 2.6) -->
+      <div id="social-buttons" class="menu-social">
+        <button class="btn secondary" onclick="inviteVkFriends()">ДРУЗЬЯ</button>
+        <button class="btn secondary" onclick="shareVkGame()">ПОДЕЛИТЬСЯ</button>
+        <button class="btn secondary" onclick="addVkToFavorites()">В ИЗБРАННОЕ</button>
+      </div>
+      
+      <div class="menu-footer">
+        <button onclick="resetProgress()" style="background:none; border:none; color:#c9a07a; font-size:12px; cursor:pointer; text-decoration:underline; padding:4px;">Сбросить весь прогресс</button>
+        <p style="font-size:11px; color:#a88860; opacity:0.95;">Возраст: 0+ · HTML5</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Первый запуск: ПС + политика (п. 1.1.4) -->
+  <div id="legal-gate" class="overlay">
+    <div class="panel">
+      <h1 style="font-size:clamp(20px,5vw,26px);">Добро пожаловать!</h1>
+      <p style="color:#c17d3a; font-size:13px; margin-bottom:12px;">Ферма Пузырей · возрастной рейтинг 0+</p>
+      <div style="text-align:left; font-size:clamp(12px,3.5vw,14px); line-height:1.5; color:#f4e9d8; margin-bottom:14px;">
+        Перед игрой ознакомьтесь с Пользовательским соглашением и Политикой конфиденциальности.
+        Прогресс сохраняется в облаке платформы. Реклама: за награду — только по вашей кнопке;
+        между уровнями — при переходе «Следующий уровень».
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px; align-items:stretch;">
+        <button class="btn secondary" onclick="openLegalDoc('terms')" style="min-width:0; width:100%; margin:0;">Пользовательское соглашение</button>
+        <button class="btn secondary" onclick="openLegalDoc('privacy')" style="min-width:0; width:100%; margin:0;">Политика конфиденциальности</button>
+        <button class="btn" onclick="acceptLegalAndContinue()" style="margin:4px 0 0; width:100%; min-width:0; background:linear-gradient(#5c8c3f,#3f5f2a);">Принимаю и играть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-app legal documents (надёжно на Android VK) -->
+  <div id="legal-viewer" class="overlay" role="dialog" aria-modal="true" aria-labelledby="legal-title">
+    <div class="panel">
+      <h2 id="legal-title">Документ</h2>
+      <div id="legal-body"></div>
+      <div class="legal-actions">
+        <button class="btn secondary" type="button" onclick="closeLegalViewer()">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- О игре / поддержка -->
+  <div id="about" class="overlay">
+    <div class="panel">
+      <h2>О игре и поддержка</h2>
+      <div style="text-align:left; font-size:14px; line-height:1.55; margin:12px 0 16px;">
+        <p><strong>Ферма Пузырей</strong> — аркада: собирайте группы овощных пузырьков, проходите уровни и ставьте рекорды.</p>
+        <p style="margin-top:10px;">Версия 1.1 · Возраст <strong>0+</strong></p>
+        <p style="margin-top:10px;"><strong>Поддержка:</strong> напишите разработчику через сообщения ВКонтакте
+          (официальное сообщество приложения в настройках игры). Отвечаем не позднее 7 дней.</p>
+        <p style="margin-top:10px;">Сброс данных — кнопка «Сбросить весь прогресс» в главном меню.</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px; align-items:stretch; margin-top:4px;">
+        <button class="btn secondary" onclick="openLegalDoc('terms')" style="min-width:0; width:100%; margin:0;">Пользовательское соглашение</button>
+        <button class="btn secondary" onclick="openLegalDoc('privacy')" style="min-width:0; width:100%; margin:0;">Политика конфиденциальности</button>
+        <button class="btn" onclick="hideAbout()" style="margin:4px 0 0; width:100%; min-width:0;">НАЗАД</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pause / In-game Menu -->
+  <div id="pause" class="overlay">
+    <div class="panel">
+      <h2>ПАУЗА</h2>
+      <button class="btn" onclick="resumeGame()">ПРОДОЛЖИТЬ</button>
+      <button class="btn secondary" onclick="restartLevel()">ПЕРЕЗАПУСТИТЬ УРОВЕНЬ</button>
+      <button class="btn secondary" onclick="quitToMenu()">В МЕНЮ</button>
+    </div>
+  </div>
+
+  <!-- Level Complete -->
+  <div id="level-complete" class="overlay">
+    <div class="panel">
+      <h1 style="color:#5c8c3f;">🎉 УРОЖАЙ СОБРАН!</h1>
+      <div id="complete-stats" style="margin:18px 0; font-size:15px;"></div>
+      <button class="btn" onclick="nextLevel()" style="min-width:220px;">СЛЕДУЮЩИЙ УРОВЕНЬ</button>
+      <button class="btn secondary" onclick="quitToMenu()">В МЕНЮ</button>
+    </div>
+  </div>
+
+  <!-- Game Over -->
+  <div id="game-over" class="overlay">
+    <div class="panel">
+      <h1 style="color:#c17d3a;">🌾 УРОЖАЙ УТРАЧЕН</h1>
+      <p style="margin:10px 0 18px;">Овощи достигли дна грядки...</p>
+      <div id="over-stats" style="margin:12px 0; font-size:15px;"></div>
+
+      <button class="btn" onclick="restartLevel()">ПОПРОБОВАТЬ ЕЩЁ РАЗ</button>
+
+      <!-- Продолжение за просмотр рекламы (инструменты + жизнь) -->
+      <button id="continue-rewarded-btn" class="btn secondary" onclick="continueWithRewardedAd()"
+              style="background: linear-gradient(#5c8c3f, #3f5f2a); border-color: #a8d07a;">
+        ПРОДОЛЖИТЬ ЗА РЕКЛАМУ (+3 инструмента)
+      </button>
+
+      <button class="btn secondary" onclick="quitToMenu()">В МЕНЮ</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats" class="overlay">
+    <div class="panel">
+      <h2>📊 СТАТИСТИКА ФЕРМЫ</h2>
+      <div id="stats-content" style="margin:12px 0 20px; text-align:left; font-size:15px;"></div>
+      <button class="btn secondary" onclick="hideStats()">НАЗАД</button>
+    </div>
+  </div>
+
+  <!-- How to Play -->
+  <div id="howto" class="overlay">
+    <div class="panel">
+      <h2>📖 КАК ИГРАТЬ</h2>
+      <div class="howto">
+        <ul style="padding-left:18px;">
+          <li><strong>Цель:</strong> стреляйте овощными пузырьками, чтобы собирать группы из <strong>3 и более одинаковых</strong> овощей.</li>
+          <li><strong>Управление (мышь/тач):</strong> Мышь — двигайте курсор для прицела, клик — выстрел. Тач — зажмите палец (появится траектория прицела), двигайте палец для наведения, отпустите — выстрел. Можно играть одной рукой.</li>
+          <li><strong>Клавиатура:</strong> Space — выстрел, <strong>Q / Tab</strong> — смена текущего и следующего пузыря, 1-4 — инструменты, Esc — пауза, R — рестарт уровня.</li>
+          <li><strong>Смена пузыря:</strong> кнопка «Смена» 🔄, тап по лотку «СЛЕДУЮЩИЙ» или Q. Доступна сразу, затем раз в <strong>3 выстрела</strong>.</li>
+          <li><strong>Физика:</strong> шарики прилипают идеально к гекс-сетке. Падающие группы получают бонусные очки.</li>
+          <li><strong>Потолок:</strong> каждые несколько выстрелов грядка опускается. Не дайте овощам дойти до пушки!</li>
+          <li><strong>Инструменты:</strong> Лопата, Огородник, Трактор и Урожай доступны <strong>с 1-го уровня</strong> (ограниченный запас). Когда счётчик стал 0 — нажмите инструмент и посмотрите <strong>рекламу VK</strong>, чтобы пополнить именно его.</li>
+          <li><strong>Пауза и звук:</strong> Есть кнопка паузы (Esc) и выключения звука в HUD.</li>
+        </ul>
+      </div>
+      <p style="font-size:13px; color:#c17d3a;">Комбо и большие группы дают намного больше очков. Старайтесь создавать каскады!</p>
+      <button class="btn" onclick="hideHowTo()" style="margin-top:10px;">ПОНЯТНО!</button>
+    </div>
+  </div>
+
+  <!-- In-game dialog вместо alert/confirm (п. 1.14) -->
+  <div id="dialog-overlay" class="overlay">
+    <div class="panel">
+      <h2 id="dialog-title">Сообщение</h2>
+      <div id="dialog-message"></div>
+      <div id="dialog-actions"></div>
+    </div>
+  </div>
+
+  <script>
+    /*
+      Ферма Пузырей — VK Mini Apps / VK Games
+      - VKWebAppInit, Storage, NativeAds, LeaderBoard, Invite, Share, Favorites
+      - Пауза при visibility / ViewHide, mute, interstitial по действию игрока
+      - Без alert/confirm браузера, без выделения/контекстного меню
+    */
+
+    // Ранний VKWebAppInit — только внутри ВК (iframe/WebView).
+    // На Live Server / standalone promise VKWebAppInit никогда не резолвится → зависала «Загрузка…».
+    (function earlyVkInit() {
+      function inVkShell() {
+        try {
+          var b = window.vkBridge || window.bridge;
+          if (b && typeof b.isEmbedded === 'function' && b.isEmbedded()) return true;
+          if (b && typeof b.isWebView === 'function' && b.isWebView()) return true;
+        } catch (e) {}
+        return /[?&]vk_/.test(location.search || '') || /vk\.(com|ru)/i.test(document.referrer || '');
+      }
+      function tryInit() {
+        if (!inVkShell()) {
+          console.log('[VK] early init skip — локальный режим (не в оболочке ВК)');
+          return true;
+        }
+        var b = window.vkBridge || window.bridge;
+        if (b && typeof b.send === 'function') {
+          var done = false;
+          var to = setTimeout(function () {
+            if (!done) console.warn('[VK] early VKWebAppInit timeout');
+          }, 2500);
+          b.send('VKWebAppInit').then(function () {
+            done = true; clearTimeout(to);
+            console.log('[VK] early VKWebAppInit OK');
+          }).catch(function (e) {
+            done = true; clearTimeout(to);
+            console.warn('[VK] early VKWebAppInit failed', e);
+          });
+          return true;
+        }
+        return false;
+      }
+      if (!tryInit()) {
+        var n = 0;
+        var t = setInterval(function () {
+          n++;
+          if (tryInit() || n > 40) clearInterval(t);
+        }, 50);
+      }
+    })();
+
+    // ======================= CONFIG & ASSETS =======================
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { alpha: true });
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Field geometry (perfectly tuned for the assets)
+    const FIELD_X = 36;
+    const FIELD_Y = 52;
+    const FIELD_W = 532;
+    const FIELD_H = 538;
+    const FIELD_RIGHT = FIELD_X + FIELD_W;
+    const FIELD_BOTTOM = FIELD_Y + FIELD_H;
+
+    const BUBBLE_R = 19;                    // visual radius (diameter ~38px)
+    const ROW_HEIGHT = BUBBLE_R * Math.sqrt(3);
+    const COLS = 12;
+    const MAX_ROWS = 15;
+    const HORZ_SPACING = BUBBLE_R * 2;
+
+    const SHOOTER_X = FIELD_X + FIELD_W / 2;
+    const SHOOTER_Y = FIELD_BOTTOM - 48;
+
+    const BUBBLE_IMGS = [];
+    const VEGGIE_NAMES = ['Свёкла', 'Репа', 'Брокколи', 'Тыква', 'Редис', 'Картофель', 'Помидор'];
+    let BG_IMG = null;
+    let SHOVEL_IMG = null;
+
+    const COLORS = 7;
+
+    // Game state
+    let gameState = 'booting'; // booting, menu, playing, paused, levelcomplete, gameover
+    let gameReady = false;    // true только после LoadingAPI.ready() / полной инициализации
+    let grid = []; // grid[row][col] = {color, x, y} or null
+    let movingBubble = null;
+    let fallers = [];
+    let particles = [];
+    let floatingTexts = [];   // +score, combo texts — pure eye candy
+
+    let currentLevel = 1;
+    let score = 0;
+    let combo = 1;
+    let shotsFired = 0;
+    let ceilingOffset = 0; // how many rows the ceiling has dropped
+    let shotsUntilDrop = 0;
+
+    let nextColor = 0;
+    let currentColor = 0;
+
+    // Смена текущего ↔ следующего: бесплатно, перезарядка каждые N выстрелов
+    const SWAP_COOLDOWN_SHOTS = 3;
+    let shotsUntilSwap = 0; // 0 = можно менять
+    let touchOnSwapZone = false;
+
+    let toolUses = { shovel: 0, gardener: 0, tractor: 0, harvest: 0 };
+    let activeTool = null;
+
+    let stats = {
+      highScore: 0,
+      totalPopped: 0,
+      maxCombo: 1,
+      levelsCompleted: 0,
+      totalShovels: 0,
+      totalGardeners: 0,
+      totalTractors: 0,
+      totalHarvests: 0
+    };
+
+    let levelStartScore = 0;
+    let screenShake = 0;
+    let lastPopTime = 0;
+
+    let mouseX = 0, mouseY = 0;
+    let isAiming = false;
+    let aimAngle = Math.PI * 1.5;
+    let touchAiming = false;  // for mobile drag-to-aim
+
+    // Глобальное состояние звука (для кнопки мьюта)
+    let isMuted = false;
+
+    // Язык из SDK (п. 2.14)
+    let gameLang = 'ru';
+
+    // ======================= IN-GAME DIALOG (вместо alert/confirm, п. 1.14) =======================
+    let dialogResolve = null;
+
+    function showDialog({ title = 'Сообщение', message = '', buttons = [{ label: 'OK', value: true, primary: true }] } = {}) {
+      return new Promise((resolve) => {
+        dialogResolve = resolve;
+        const overlay = document.getElementById('dialog-overlay');
+        const titleEl = document.getElementById('dialog-title');
+        const msgEl = document.getElementById('dialog-message');
+        const actions = document.getElementById('dialog-actions');
+        if (!overlay || !titleEl || !msgEl || !actions) {
+          resolve(buttons[0] ? buttons[0].value : true);
+          return;
+        }
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        actions.innerHTML = '';
+        buttons.forEach((btn) => {
+          const b = document.createElement('button');
+          b.className = btn.primary ? 'btn' : 'btn secondary';
+          b.textContent = btn.label;
+          b.onclick = () => {
+            overlay.classList.remove('active');
+            const r = dialogResolve;
+            dialogResolve = null;
+            if (r) r(btn.value);
+          };
+          actions.appendChild(b);
+        });
+        overlay.classList.add('active');
+      });
+    }
+
+    function showAlertDialog(message, title = 'Сообщение') {
+      return showDialog({
+        title,
+        message,
+        buttons: [{ label: 'OK', value: true, primary: true }]
+      });
+    }
+
+    function showConfirmDialog(message, title = 'Подтверждение') {
+      return showDialog({
+        title,
+        message,
+        buttons: [
+          { label: 'ДА', value: true, primary: true },
+          { label: 'НЕТ', value: false, primary: false }
+        ]
+      });
+    }
+
+    // ======================= VK PLATFORM LAYER =======================
+    // Полная интеграция VK Mini Apps / VK Games через VK Bridge
+    const VK_APP_ID = 54692985;
+    const VK_STORAGE_KEY = 'bf_save'; // [a-zA-Z_\-0-9], value ≤4096
+    let vkBridgeReady = false;
+    let vkUserId = null;
+    let vkPlatform = null;
+    let lastAdTime = 0;
+    let adsShowing = false;
+    let savedProgress = null; // { lastLevel, lastScore, ... }
+
+    function getVkBridge() {
+      return (typeof window !== 'undefined' && (window.vkBridge || window.vkConnect || window.bridge)) || null;
+    }
+
+    function parseVkLaunchParams() {
+      const params = {};
+      try {
+        const q = (window.location.search || '').replace(/^\?/, '');
+        q.split('&').forEach((pair) => {
+          if (!pair) return;
+          const [k, v] = pair.split('=');
+          if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+        });
+      } catch (e) {}
+      return params;
+    }
+
+    function isRunningInsideVk() {
+      try {
+        const bridge = getVkBridge();
+        if (bridge) {
+          if (typeof bridge.isEmbedded === 'function' && bridge.isEmbedded()) return true;
+          if (typeof bridge.isWebView === 'function' && bridge.isWebView()) return true;
+          if (typeof bridge.isStandalone === 'function' && bridge.isStandalone()) return false;
+        }
+      } catch (e) {}
+      if (/[?&]vk_/.test(location.search || '')) return true;
+      if (/vk\.(com|ru)/i.test(document.referrer || '')) return true;
+      return false;
+    }
+
+    /** Bridge-вызов с таймаутом — вне ВК promise иначе висит бесконечно */
+    function bridgeSend(method, params = {}, timeoutMs = 2000) {
+      const bridge = getVkBridge();
+      if (!bridge || typeof bridge.send !== 'function') {
+        return Promise.reject(new Error('no bridge'));
+      }
+      return Promise.race([
+        bridge.send(method, params),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('VK bridge timeout: ' + method)), timeoutMs)
+        )
+      ]);
+    }
+
+    async function initVkBridge() {
+      try {
+        const bridge = getVkBridge();
+        if (!bridge || typeof bridge.send !== 'function') {
+          console.log('[VK] Bridge API недоступен. Локальный режим.');
+          return false;
+        }
+
+        // Live Server / обычный браузер — не ждём VK API
+        if (!isRunningInsideVk()) {
+          console.log('[VK] Standalone / Live Server — пропускаем VKWebAppInit (локальный режим).');
+          vkBridgeReady = false;
+          return false;
+        }
+
+        await bridgeSend('VKWebAppInit', {}, 2500);
+        vkBridgeReady = true;
+        console.log('[VK] VKWebAppInit OK');
+
+        // Параметры запуска
+        try {
+          const lp = await bridgeSend('VKWebAppGetLaunchParams', {}, 2000);
+          if (lp) {
+            vkUserId = lp.vk_user_id || null;
+            vkPlatform = lp.vk_platform || null;
+            if (lp.vk_language) {
+              gameLang = String(lp.vk_language).toLowerCase().slice(0, 2);
+              document.documentElement.lang = gameLang === 'en' ? 'en' : 'ru';
+            }
+            console.log('[VK] launch params', { vkUserId, vkPlatform, lang: gameLang });
+          }
+        } catch (e) {
+          const fallback = parseVkLaunchParams();
+          vkUserId = fallback.vk_user_id || null;
+          vkPlatform = fallback.vk_platform || null;
+          if (fallback.vk_language) {
+            gameLang = String(fallback.vk_language).toLowerCase().slice(0, 2);
+            document.documentElement.lang = gameLang === 'en' ? 'en' : 'ru';
+          }
+        }
+
+        // Видимость / сворачивание клиента
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) {
+            suspendAudio();
+            platformGameplayStop();
+            if (gameState === 'playing' && typeof pauseGame === 'function') pauseGame();
+          } else {
+            resumeAudio();
+            if (gameState === 'playing' || gameState === 'paused') platformGameplayStart();
+          }
+        });
+
+        // События Bridge (пауза рекламы / фокус)
+        if (typeof bridge.subscribe === 'function') {
+          bridge.subscribe((e) => {
+            const type = e && e.detail && e.detail.type;
+            if (!type) return;
+            if (type === 'VKWebAppViewHide' || type === 'VKWebAppAudioPaused') {
+              suspendAudio();
+              if (gameState === 'playing') pauseGame();
+            }
+            if (type === 'VKWebAppViewRestore' || type === 'VKWebAppAudioResumed') {
+              resumeAudio();
+            }
+          });
+        }
+
+        // Предзагрузка рекламы (не блокируем старт надолго)
+        try {
+          await bridgeSend('VKWebAppCheckNativeAds', { ad_format: 'interstitial' }, 1500);
+        } catch (e) {}
+        try {
+          await bridgeSend('VKWebAppCheckNativeAds', { ad_format: 'reward' }, 1500);
+        } catch (e) {}
+
+        try {
+          await Promise.race([
+            loadProgressFromCloud(),
+            new Promise((r) => setTimeout(r, 2000))
+          ]);
+        } catch (e) {}
+        return true;
+      } catch (err) {
+        console.warn('[VK] init error (локальный режим):', err && err.message ? err.message : err);
+        vkBridgeReady = false;
+        return false;
+      }
+    }
+
+    // Единые хуки старта/стопа геймплея (на VK — no-op)
+    function platformGameplayStart() { /* VK: no-op */ }
+    function platformGameplayStop() { /* VK: no-op */ }
+    const yandexGameplayStart = platformGameplayStart; // legacy alias
+    const yandexGameplayStop = platformGameplayStop;
+
+    // ======================= Level database — carefully balanced progression
+    // Все 4 инструмента доступны с 1-го уровня (ограниченный запас; 0 → rewarded ad VK)
+    const TOOL_REWARD_AMOUNT = { shovel: 3, gardener: 2, tractor: 2, harvest: 2 };
+    const LEVELS = [
+      { num:1,  startRows:4,  colors:3, dropEvery:7, goalScore:  650, tools:{shovel:3, gardener:1, tractor:1, harvest:1} },
+      { num:2,  startRows:5,  colors:3, dropEvery:6, goalScore:  820, tools:{shovel:3, gardener:1, tractor:1, harvest:1} },
+      { num:3,  startRows:5,  colors:4, dropEvery:6, goalScore:  980, tools:{shovel:3, gardener:2, tractor:1, harvest:1} },
+      { num:4,  startRows:6,  colors:4, dropEvery:5, goalScore: 1150, tools:{shovel:3, gardener:2, tractor:1, harvest:1} },
+      { num:5,  startRows:6,  colors:4, dropEvery:5, goalScore: 1320, tools:{shovel:4, gardener:2, tractor:1, harvest:1} },
+      { num:6,  startRows:7,  colors:5, dropEvery:5, goalScore: 1480, tools:{shovel:3, gardener:2, tractor:1, harvest:1} },
+      { num:7,  startRows:7,  colors:5, dropEvery:4, goalScore: 1690, tools:{shovel:4, gardener:2, tractor:1, harvest:1} },
+      { num:8,  startRows:8,  colors:5, dropEvery:4, goalScore: 1920, tools:{shovel:3, gardener:2, tractor:2, harvest:1} },
+      { num:9,  startRows:8,  colors:6, dropEvery:4, goalScore: 2150, tools:{shovel:4, gardener:2, tractor:2, harvest:2} },
+      { num:10, startRows:9,  colors:6, dropEvery:4, goalScore: 2410, tools:{shovel:3, gardener:2, tractor:2, harvest:1} },
+      { num:11, startRows:9,  colors:7, dropEvery:3, goalScore: 2680, tools:{shovel:4, gardener:3, tractor:2, harvest:2} },
+      { num:12, startRows:10, colors:7, dropEvery:3, goalScore: 3100, tools:{shovel:5, gardener:3, tractor:2, harvest:2} }
+    ];
+
+    // ======================= UTILS =======================
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function dist(x1,y1,x2,y2) { return Math.hypot(x2-x1, y2-y1); }
+    function lerp(a,b,t) { return a + (b-a)*t; }
+
+    function getGridPos(row, col) {
+      const even = (row % 2 === 0);
+      const x = FIELD_X + 18 + col * HORZ_SPACING + (even ? 0 : BUBBLE_R);
+      const y = FIELD_Y + 14 + row * ROW_HEIGHT + ceilingOffset * ROW_HEIGHT;
+      return { x, y };
+    }
+
+    function worldToGrid(wx, wy) {
+      // IMPORTANT: subtract ceilingOffset so we compute the *logical* row in the grid array,
+      // not the visual screen row. After many drops the whole grid has shifted down on screen.
+      const baseY = FIELD_Y + 14;
+      const relY = wy - baseY - ceilingOffset * ROW_HEIGHT;
+      let row = Math.round(relY / ROW_HEIGHT);
+      row = clamp(row, 0, MAX_ROWS - 1);
+
+      const even = (row % 2 === 0);
+      const xBase = FIELD_X + 18 + (even ? 0 : BUBBLE_R);
+      let col = Math.round((wx - xBase) / HORZ_SPACING);
+      col = clamp(col, 0, COLS - 1);
+      return { row, col };
+    }
+
+    function getNeighbors(r, c) {
+      // Flat-top hex, row-staggered (odd rows shifted right by half)
+      const dirs = (r % 2 === 0)
+        ? [[-1, -1], [-1, 0], [0, -1], [0, 1], [1, -1], [1, 0]]   // even
+        : [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]];   // odd
+      const res = [];
+      for (const [dr, dc] of dirs) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < MAX_ROWS && nc >= 0 && nc < COLS) res.push([nr, nc]);
+      }
+      return res;
+    }
+
+    function isCellValid(r, c) {
+      return r >= 0 && r < MAX_ROWS && c >= 0 && c < COLS;
+    }
+
+    function getBubbleAt(r, c) {
+      if (!isCellValid(r, c)) return null;
+      return grid[r] ? grid[r][c] : null;
+    }
+
+    function setBubble(r, c, data) {
+      if (!grid[r]) grid[r] = new Array(COLS).fill(null);
+      grid[r][c] = data;
+      if (data) {
+        const pos = getGridPos(r, c);
+        data.x = pos.x;
+        data.y = pos.y;
+        data.row = r;
+        data.col = c;
+      }
+    }
+
+    function removeBubble(r, c) {
+      if (grid[r] && grid[r][c]) {
+        grid[r][c] = null;
+      }
+    }
+
+    function countBubbles() {
+      let n = 0;
+      for (let r = 0; r < MAX_ROWS; r++) {
+        if (!grid[r]) continue;
+        for (let c = 0; c < COLS; c++) if (grid[r][c]) n++;
+      }
+      return n;
+    }
+
+    // ======================= AUDIO (self-contained synth) =======================
+    let audioCtx;
+    function ensureAudio() {
+      if (!audioCtx) {
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+      }
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    // Приостановка/возобновление звука — обязательно по требованиям Яндекс (1.3 + 4.7)
+    function suspendAudio() {
+      if (audioCtx && audioCtx.state === 'running') {
+        audioCtx.suspend().catch(() => {});
+      }
+    }
+
+    function resumeAudio() {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+    }
+
+    function playSound(type, color = 0) {
+      if (!audioCtx || isMuted) return;
+      try {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        const f = audioCtx.createBiquadFilter();
+        const now = audioCtx.currentTime;
+
+        if (type === 'shoot') {
+          o.type = 'sawtooth';
+          o.frequency.value = 180;
+          g.gain.value = 0.22;
+          f.type = 'lowpass'; f.frequency.value = 1200;
+          o.connect(f); f.connect(g); g.connect(audioCtx.destination);
+          g.gain.linearRampToValueAtTime(0.0001, now + 0.28);
+          o.start(now); o.stop(now + 0.3);
+        } else if (type === 'pop') {
+          o.type = 'sine';
+          o.frequency.value = 620 + color * 38;
+          g.gain.value = 0.32;
+          f.type = 'lowpass'; f.frequency.value = 1800;
+          const noise = audioCtx.createBufferSource();
+          const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.18, audioCtx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+          noise.buffer = buffer;
+          const nGain = audioCtx.createGain(); nGain.gain.value = 0.08;
+          const nF = audioCtx.createBiquadFilter(); nF.type='bandpass'; nF.frequency.value=1400; nF.Q.value=3;
+          noise.connect(nF); nF.connect(nGain); nGain.connect(audioCtx.destination);
+          o.connect(f); f.connect(g); g.connect(audioCtx.destination);
+          g.gain.linearRampToValueAtTime(0.0001, now + 0.26);
+          nGain.gain.linearRampToValueAtTime(0.0001, now + 0.19);
+          o.start(now); o.stop(now + 0.28);
+          noise.start(now); noise.stop(now + 0.2);
+        } else if (type === 'fall') {
+          o.type = 'triangle';
+          o.frequency.value = 240;
+          g.gain.value = 0.15;
+          o.connect(g); g.connect(audioCtx.destination);
+          g.gain.linearRampToValueAtTime(0.0001, now + 0.6);
+          o.start(now); o.stop(now + 0.65);
+        } else if (type === 'tool') {
+          o.type = 'square';
+          o.frequency.value = 420;
+          g.gain.value = 0.18;
+          o.connect(g); g.connect(audioCtx.destination);
+          g.gain.linearRampToValueAtTime(0.0001, now + 0.22);
+          o.start(now); o.stop(now + 0.25);
+        } else if (type === 'combo') {
+          o.type = 'sine';
+          o.frequency.value = 780 + Math.min(combo, 7) * 55;
+          g.gain.value = 0.25;
+          o.connect(g); g.connect(audioCtx.destination);
+          g.gain.linearRampToValueAtTime(0.0001, now + 0.35);
+          o.start(now); o.stop(now + 0.38);
+        }
+      } catch(e) {}
+    }
+
+    // ======================= PARTICLES & EFFECTS =======================
+    function spawnPopParticles(x, y, color, count = 7, power = 1) {
+      const isBig = power >= 2;
+
+      // Juicy colored bits
+      for (let i = 0; i < count; i++) {
+        const spread = isBig ? 5.2 : 3.8;
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * spread,
+          vy: (Math.random() - 0.5) * spread - 0.9,
+          life: 28 + Math.random() * 18,
+          color,
+          size: (isBig ? 3.2 : 2.4) + Math.random() * 2.4,
+          rot: Math.random() * Math.PI * 2,
+          vr: (Math.random() - 0.5) * 0.32
+        });
+      }
+
+      // Lots of happy leaves for farm feel
+      const leafCount = isBig ? 7 : 4;
+      for (let i = 0; i < leafCount; i++) {
+        const spread = isBig ? 3.4 : 2.4;
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * spread,
+          vy: (Math.random() - 1.1) * spread - 1.4,
+          life: 36 + Math.random() * 12,
+          color: 2,
+          size: 3.2 + Math.random() * 1.8,
+          isLeaf: true,
+          rot: Math.random() * 7,
+          vr: (Math.random() - 0.5) * 0.28
+        });
+      }
+
+      // Sparkles — pure eye candy, makes it feel premium and rewarding
+      if (isBig || Math.random() < 0.6) {
+        const sparkleCount = isBig ? 5 : 2;
+        for (let i = 0; i < sparkleCount; i++) {
+          particles.push({
+            x: x + (Math.random() - 0.5) * 18,
+            y: y + (Math.random() - 0.5) * 18,
+            vx: (Math.random() - 0.5) * 1.6,
+            vy: (Math.random() - 0.8) * 1.8 - 0.6,
+            life: 32 + Math.random() * 14,
+            size: 2.8 + Math.random() * 1.6,
+            type: 'sparkle',
+            rot: Math.random() * Math.PI
+          });
+        }
+      }
+
+      // Little dirt puffs when something pops near the soil
+      if (y > FIELD_Y + 120) {
+        for (let i = 0; i < (isBig ? 4 : 2); i++) {
+          particles.push({
+            x, y: y + 4,
+            vx: (Math.random() - 0.5) * 1.8,
+            vy: (Math.random() - 0.3) * 0.9,
+            life: 22,
+            size: 2.2 + Math.random(),
+            type: 'dirt'
+          });
+        }
+      }
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.12; // gravity
+        p.vx *= 0.985;
+        p.life--;
+        p.rot += p.vr;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        const alpha = Math.max(0.08, p.life / 42);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot || 0);
+
+        if (p.type === 'sparkle') {
+          // Twinkling star / light glint — very pleasing to the eye
+          const s = p.size * (0.6 + Math.sin(p.life * 0.4) * 0.4);
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(-s * 0.5, -1.2, s, 2.4);
+          ctx.fillRect(-1.2, -s * 0.5, 2.4, s);
+        } else if (p.type === 'dirt') {
+          ctx.fillStyle = '#4a3726';
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (p.isLeaf || p.type === 'leaf') {
+          ctx.fillStyle = p.color === 2 ? '#4a7c3a' : '#5c8c3f';
+          ctx.fillRect(-p.size * 0.7, -1.8, p.size * 1.4, 3.6);
+        } else {
+          // regular veggie bits
+          ctx.fillStyle = ['#9c2f2f', '#6aa8b8', '#2e6b2e', '#d8a23a', '#c24e4e', '#8a6a3a', '#c23a2a'][p.color] || '#f4e9d8';
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    // ======================= FLOATING TEXTS (delightful score feedback) =======================
+    function spawnFloatingText(x, y, text, opts = {}) {
+      floatingTexts.push({
+        x: x + (opts.offsetX || 0),
+        y: y + (opts.offsetY || -12),
+        text: text,
+        vy: opts.vy || -1.8,
+        life: opts.life || 48,
+        size: opts.size || 15,
+        color: opts.color || '#f4e9d8',
+        outline: opts.outline !== false,
+        scale: opts.scale || 1
+      });
+    }
+
+    function updateFloatingTexts() {
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const t = floatingTexts[i];
+        t.y += t.vy;
+        t.vy *= 0.96;           // gentle deceleration
+        t.life--;
+        t.scale = 1 + Math.sin(t.life * 0.12) * 0.04; // tiny happy wobble
+        if (t.life <= 0) floatingTexts.splice(i, 1);
+      }
+    }
+
+    function drawFloatingTexts() {
+      ctx.textAlign = 'center';
+      for (const t of floatingTexts) {
+        const a = Math.min(1, t.life / 18);
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.font = `bold ${t.size * t.scale}px "Segoe UI", system-ui, sans-serif`;
+        ctx.fillStyle = t.color;
+
+        if (t.outline) {
+          ctx.strokeStyle = '#1f160f';
+          ctx.lineWidth = 3.5;
+          ctx.strokeText(t.text, t.x, t.y);
+        }
+        ctx.fillText(t.text, t.x, t.y);
+        ctx.restore();
+      }
+      ctx.textAlign = 'left';
+    }
+
+    // ======================= GRID & LEVEL SETUP =======================
+    function initGrid() {
+      grid = new Array(MAX_ROWS).fill(null).map(() => new Array(COLS).fill(null));
+      fallers = [];
+      particles = [];
+      floatingTexts = [];
+      ceilingOffset = 0;
+      movingBubble = null;
+    }
+
+    function fillInitialRows(startRows, maxColors) {
+      initGrid();
+      for (let r = 0; r < startRows; r++) {
+        for (let c = 0; c < COLS; c++) {
+          // slight randomness on edges for nicer look
+          if (Math.random() < 0.07 && (c === 0 || c === COLS-1)) continue;
+          const color = Math.floor(Math.random() * maxColors);
+          setBubble(r, c, { color, scale: 1, alpha: 1 });
+        }
+      }
+      // improve playability a tiny bit: remove obvious isolated singles at start
+      for (let r = 0; r < startRows; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const b = getBubbleAt(r, c);
+          if (!b) continue;
+          const neigh = getNeighbors(r, c).filter(([nr,nc]) => {
+            const nb = getBubbleAt(nr, nc);
+            return nb && nb.color === b.color;
+          });
+          if (neigh.length === 0 && Math.random() < 0.6) {
+            removeBubble(r, c);
+          }
+        }
+      }
+    }
+
+    function setupLevel(levelNum) {
+      const lvl = LEVELS.find(l => l.num === levelNum) || LEVELS[LEVELS.length-1];
+      currentLevel = lvl.num;
+      levelStartScore = score;
+      shotsFired = 0;
+      combo = 1;
+      ceilingOffset = 0;
+      shotsUntilDrop = lvl.dropEvery;
+      activeTool = null;
+
+      toolUses = { ...lvl.tools };
+      shotsUntilSwap = 0; // на старте уровня смена доступна сразу
+      touchOnSwapZone = false;
+
+      fillInitialRows(lvl.startRows, lvl.colors);
+      floatingTexts = []; // clean slate for new level
+
+      // first current + next
+      currentColor = Math.floor(Math.random() * lvl.colors);
+      nextColor = Math.floor(Math.random() * lvl.colors);
+      // чтобы первая смена была осмысленной — next ≠ current
+      if (lvl.colors > 1) {
+        let guard = 0;
+        while (nextColor === currentColor && guard++ < 8) {
+          nextColor = Math.floor(Math.random() * lvl.colors);
+        }
+      }
+
+      // Сохраняем текущий уровень в облако (прогресс по уровням)
+      saveProgressToYandex();
+
+      // ensure not completely blocked at start
+      if (countBubbles() === 0) {
+        setBubble(0, Math.floor(COLS/2), { color: currentColor, scale:1, alpha:1 });
+      }
+    }
+
+    function lowerCeiling() {
+      ceilingOffset++;
+
+      // Satisfying "soil is shifting down" effect
+      for (let i = 0; i < 14; i++) {
+        const px = FIELD_X + 15 + Math.random() * (FIELD_W - 30);
+        particles.push({
+          x: px,
+          y: FIELD_Y + 5,
+          vx: (Math.random() - 0.5) * 1.4,
+          vy: 0.6 + Math.random() * 1.3,
+          life: 26 + Math.random() * 10,
+          size: 2.1 + Math.random() * 1.6,
+          type: 'dirt'
+        });
+      }
+
+      if (checkGameOverByCeiling()) {
+        endGame(false);
+      }
+    }
+
+    function checkGameOverByCeiling() {
+      for (let r = 0; r < MAX_ROWS; r++) {
+        if (!grid[r]) continue;
+        for (let c = 0; c < COLS; c++) {
+          const b = grid[r][c];
+          if (!b) continue;
+          const pos = getGridPos(r, c);
+          if (pos.y + BUBBLE_R * 1.1 > SHOOTER_Y - 6) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // ======================= MATCHING & FALLING =======================
+    function findConnectedGroup(startR, startC) {
+      const b = getBubbleAt(startR, startC);
+      if (!b) return [];
+      const targetColor = b.color;
+      const visited = new Set();
+      const group = [];
+      const stack = [[startR, startC]];
+
+      while (stack.length) {
+        const [r, c] = stack.pop();
+        const key = r * 100 + c;
+        if (visited.has(key)) continue;
+        visited.add(key);
+        const bb = getBubbleAt(r, c);
+        if (!bb || bb.color !== targetColor) continue;
+        group.push([r, c]);
+        for (const [nr, nc] of getNeighbors(r, c)) {
+          const nb = getBubbleAt(nr, nc);
+          if (nb && nb.color === targetColor) stack.push([nr, nc]);
+        }
+      }
+      return group;
+    }
+
+    function findAllConnectedToCeiling() {
+      const connected = new Set();
+      const stack = [];
+
+      // start from top row (considering ceiling visually but logically row 0 is always "top")
+      for (let c = 0; c < COLS; c++) {
+        const b = getBubbleAt(0, c);
+        if (b) stack.push([0, c]);
+      }
+
+      while (stack.length) {
+        const [r, c] = stack.pop();
+        const key = r * 100 + c;
+        if (connected.has(key)) continue;
+        connected.add(key);
+        for (const [nr, nc] of getNeighbors(r, c)) {
+          if (getBubbleAt(nr, nc)) stack.push([nr, nc]);
+        }
+      }
+      return connected;
+    }
+
+    function applyGravityAndFall() {
+      const connected = findAllConnectedToCeiling();
+      const toFall = [];
+
+      for (let r = 0; r < MAX_ROWS; r++) {
+        if (!grid[r]) continue;
+        for (let c = 0; c < COLS; c++) {
+          const b = grid[r][c];
+          if (!b) continue;
+          const key = r * 100 + c;
+          if (!connected.has(key)) {
+            toFall.push({ r, c, bubble: b });
+          }
+        }
+      }
+
+      let fallenCount = 0;
+      for (const { r, c, bubble } of toFall) {
+        removeBubble(r, c);
+        const pos = getGridPos(r, c);
+        fallers.push({
+          x: pos.x,
+          y: pos.y,
+          vx: (Math.random() - 0.5) * 1.9,
+          vy: 1.4 + Math.random() * 1.6,
+          color: bubble.color,
+          scale: 1,
+          rot: (Math.random() - 0.5) * 1.2
+        });
+        fallenCount++;
+      }
+
+      if (fallenCount > 0) {
+        playSound('fall');
+        // bonus points for falling vegetables
+        const fallBonus = fallenCount * 8 + Math.floor(fallenCount / 3) * 12;
+        score += fallBonus;
+        spawnPopParticles(SHOOTER_X, SHOOTER_Y - 30, 2, 3, 1);
+        spawnFloatingText(SHOOTER_X, SHOOTER_Y - 55, `+${fallBonus} урожай!`, {
+          size: 13,
+          color: '#8bc34a',
+          vy: -1.6,
+          life: 42
+        });
+        saveProgressToYandex();
+      }
+      return fallenCount;
+    }
+
+    function popGroup(group) {
+      if (!group || group.length < 1) return 0;
+      const size = group.length;
+      let points = size * 11;
+      if (size >= 4) points += (size - 3) * 18;
+      if (size >= 6) points += 55;
+      if (size >= 8) points += 85;
+
+      const mult = Math.min(6, Math.max(1, combo));
+      points = Math.floor(points * mult);
+
+      // pop them with animation
+      for (const [r, c] of group) {
+        const b = getBubbleAt(r, c);
+        if (!b) continue;
+        const pos = getGridPos(r, c);
+        const popPower = size >= 5 ? 2 : (size >= 4 ? 1.5 : 1);
+        spawnPopParticles(pos.x, pos.y, b.color, 6 + Math.floor(size / 3), popPower);
+        removeBubble(r, c);
+      }
+
+      playSound('pop', group[0][0] % 7);
+      if (combo >= 2) playSound('combo');
+
+      score += points;
+      stats.totalPopped += size;
+
+      // Beautiful floating score feedback — makes the player feel rewarded
+      const avgX = group.reduce((s, [r,c]) => s + getGridPos(r,c).x, 0) / group.length;
+      const avgY = group.reduce((s, [r,c]) => s + getGridPos(r,c).y, 0) / group.length;
+      const scoreText = points >= 120 ? `+${points}!` : `+${points}`;
+      spawnFloatingText(avgX, avgY - 8, scoreText, {
+        size: points > 90 ? 19 : 15,
+        color: combo >= 3 ? '#ffd36e' : '#f4e9d8',
+        vy: -2.1
+      });
+
+      if (combo >= 3) {
+        spawnFloatingText(avgX, avgY + 6, `x${combo}`, {
+          size: 13,
+          color: '#c17d3a',
+          vy: -1.3,
+          life: 36
+        });
+      }
+
+      // combo handling
+      combo = Math.min(12, combo + 1);
+      if (combo > stats.maxCombo) stats.maxCombo = combo;
+
+      // screen juice
+      if (size >= 5) screenShake = Math.min(18, size * 1.6);
+      lastPopTime = Date.now();
+
+      // Сохраняем прогресс сразу после значимого действия (требование 1.9)
+      saveProgressToYandex();
+
+      return points;
+    }
+
+    // ======================= SHOOTING & SNAPPING =======================
+    function getAimDirection() {
+      // angle from vertical (up)
+      return aimAngle;
+    }
+
+    function shootBubble() {
+      if (movingBubble || gameState !== 'playing') return;
+
+      ensureAudio();
+      const angle = getAimDirection();
+      const speed = 9.6;
+
+      const startX = SHOOTER_X;
+      const startY = SHOOTER_Y - 6;
+
+      movingBubble = {
+        x: startX,
+        y: startY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        color: currentColor,
+        scale: 1
+      };
+
+      playSound('shoot');
+      shotsFired++;
+      shotsUntilDrop--;
+      if (shotsUntilSwap > 0) shotsUntilSwap--;
+
+      // cycle next
+      const lvl = LEVELS.find(l => l.num === currentLevel) || LEVELS[LEVELS.length-1];
+      currentColor = nextColor;
+      nextColor = Math.floor(Math.random() * lvl.colors);
+      if (lvl.colors > 1) {
+        let guard = 0;
+        while (nextColor === currentColor && guard++ < 8) {
+          nextColor = Math.floor(Math.random() * lvl.colors);
+        }
+      }
+
+      // check drop ceiling
+      if (shotsUntilDrop <= 0) {
+        shotsUntilDrop = lvl.dropEvery;
+        lowerCeiling();
+      }
+
+      // обновить кнопку «Смена» (кулдаун)
+      try { updateToolUI(); } catch (e) {}
+    }
+
+    /** Попадание в лоток «СЛЕДУЮЩИЙ» (зона смены пузыря) */
+    function getNextTrayRect() {
+      const nx = SHOOTER_X - 98;
+      const ny = SHOOTER_Y + 4;
+      return { x: nx - 22, y: ny - 20, w: 44, h: 52, cx: nx, cy: ny };
+    }
+
+    function isNextTrayHit(wx, wy) {
+      const r = getNextTrayRect();
+      return wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h;
+    }
+
+    /** Смена текущего и следующего пузыря (кулдаун: SWAP_COOLDOWN_SHOTS выстрелов) */
+    function trySwapBubbles() {
+      if (gameState !== 'playing' || movingBubble) return false;
+
+      if (shotsUntilSwap > 0) {
+        const tray = getNextTrayRect();
+        spawnFloatingText(tray.cx, tray.cy - 28, `ещё ${shotsUntilSwap}`, {
+          size: 12, color: '#e8d5a3', vy: -1.0, life: 36
+        });
+        return false;
+      }
+
+      const tmp = currentColor;
+      currentColor = nextColor;
+      nextColor = tmp;
+      shotsUntilSwap = SWAP_COOLDOWN_SHOTS;
+
+      playSound('tool');
+      const tray = getNextTrayRect();
+      spawnFloatingText(tray.cx, tray.cy - 30, 'СМЕНА!', {
+        size: 14, color: '#ffeb3b', vy: -1.4, life: 40
+      });
+      // лёгкие частицы вокруг лотка
+      for (let i = 0; i < 8; i++) {
+        particles.push({
+          x: tray.cx + (Math.random() - 0.5) * 24,
+          y: tray.cy + (Math.random() - 0.5) * 16,
+          vx: (Math.random() - 0.5) * 2.2,
+          vy: -1.2 - Math.random() * 1.5,
+          life: 22 + Math.random() * 10,
+          size: 2 + Math.random() * 1.5,
+          type: 'sparkle',
+          rot: 0,
+          vr: 0.2
+        });
+      }
+
+      try { updateToolUI(); } catch (e) {}
+      return true;
+    }
+
+    function findSnapCell(x, y) {
+      // Find best empty cell near this world position.
+      // Now correctly uses logical rows thanks to the fixed worldToGrid (accounts for ceilingOffset).
+      const { row: approxRow, col: approxCol } = worldToGrid(x, y);
+
+      let best = null;
+      let bestDist = Infinity;
+
+      // Widen search window for robustness after big drops
+      for (let dr = -3; dr <= 3; dr++) {
+        for (let dc = -3; dc <= 3; dc++) {
+          const r = approxRow + dr;
+          const c = approxCol + dc;
+          if (!isCellValid(r, c)) continue;
+          if (getBubbleAt(r, c)) continue;
+
+          // Attachable rules:
+          // - Top two logical rows (0 and 1) are always against the "ceiling" — allow sticking there
+          //   even if the exact neighbor check fails (important after drops + upper rows got cleared).
+          // - Otherwise must have at least one occupied hex neighbor.
+          let attachable = (r <= 1);
+          if (!attachable) {
+            for (const [nr, nc] of getNeighbors(r, c)) {
+              if (getBubbleAt(nr, nc)) { attachable = true; break; }
+            }
+          }
+          if (!attachable) continue;
+
+          const pos = getGridPos(r, c);
+          const d = dist(x, y, pos.x, pos.y);
+          if (d < bestDist) {
+            bestDist = d;
+            best = { row: r, col: c, pos };
+          }
+        }
+      }
+
+      // Fallback 1: small window around the approx position
+      if (!best) {
+        const { row, col } = worldToGrid(x, y);
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const r = row + dr, c = col + dc;
+            if (!isCellValid(r, c) || getBubbleAt(r, c)) continue;
+            const pos = getGridPos(r, c);
+            const d = dist(x, y, pos.x, pos.y);
+            if (d < bestDist) {
+              bestDist = d;
+              best = { row: r, col: c, pos };
+            }
+          }
+        }
+      }
+
+      // Strong safety net: search around every currently occupied bubble for the closest valid empty neighbor.
+      // This catches cases after heavy clearing + multiple ceiling drops where approxRow may still be off.
+      if (!best || bestDist > BUBBLE_R * 2.2) {
+        for (let r = 0; r < MAX_ROWS; r++) {
+          if (!grid[r]) continue;
+          for (let c = 0; c < COLS; c++) {
+            if (!grid[r][c]) continue;
+            for (const [nr, nc] of getNeighbors(r, c)) {
+              if (!isCellValid(nr, nc) || getBubbleAt(nr, nc)) continue;
+              const pos = getGridPos(nr, nc);
+              const d = dist(x, y, pos.x, pos.y);
+              if (d < bestDist) {
+                bestDist = d;
+                best = { row: nr, col: nc, pos };
+              }
+            }
+          }
+        }
+      }
+
+      return (best && bestDist < BUBBLE_R * 2.9) ? best : null;
+    }
+
+    function attachMovingBubble() {
+      if (!movingBubble) return false;
+
+      const snap = findSnapCell(movingBubble.x, movingBubble.y);
+      if (!snap) {
+        // rare miss — just drop it as faller
+        fallers.push({
+          x: movingBubble.x, y: movingBubble.y,
+          vx: movingBubble.vx * 0.3, vy: movingBubble.vy * 0.5 + 1.2,
+          color: movingBubble.color, scale: 1, rot: 0
+        });
+        movingBubble = null;
+        return false;
+      }
+
+      const { row, col, pos } = snap;
+      setBubble(row, col, {
+        color: movingBubble.color,
+        scale: 1,
+        alpha: 1
+      });
+
+      // perfect placement guaranteed
+      movingBubble = null;
+
+      // match check
+      const group = findConnectedGroup(row, col);
+      let popped = 0;
+      if (group.length >= 3) {
+        popped = popGroup(group);
+      }
+
+      // gravity
+      const fallen = applyGravityAndFall();
+
+      // re-check death
+      if (checkGameOverByCeiling()) {
+        endGame(false);
+        return true;
+      }
+
+      // level complete?
+      if (countBubbles() === 0) {
+        endGame(true);
+        return true;
+      }
+
+      // reset combo if nothing happened this shot
+      if (popped === 0 && fallen === 0) {
+        combo = 1;
+      }
+
+      // check goal
+      const lvl = LEVELS.find(l => l.num === currentLevel) || LEVELS[LEVELS.length-1];
+      if (score - levelStartScore >= lvl.goalScore && countBubbles() < 18) {
+        // allow finishing early with good score
+        endGame(true);
+      }
+
+      return true;
+    }
+
+    function updateMoving() {
+      if (!movingBubble) return;
+
+      movingBubble.x += movingBubble.vx;
+      movingBubble.y += movingBubble.vy;
+
+      const left = FIELD_X + BUBBLE_R + 4;
+      const right = FIELD_RIGHT - BUBBLE_R - 4;
+      const top = FIELD_Y + BUBBLE_R + 2;
+
+      // wall bounce (good feel)
+      if (movingBubble.x < left) {
+        movingBubble.x = left;
+        movingBubble.vx = Math.abs(movingBubble.vx) * 0.98;
+      }
+      if (movingBubble.x > right) {
+        movingBubble.x = right;
+        movingBubble.vx = -Math.abs(movingBubble.vx) * 0.98;
+      }
+
+      // top attach
+      if (movingBubble.y < top) {
+        movingBubble.y = top;
+        attachMovingBubble();
+        return;
+      }
+
+      // collision with static bubbles
+      let hit = false;
+      for (let r = 0; r < MAX_ROWS; r++) {
+        if (!grid[r]) continue;
+        for (let c = 0; c < COLS; c++) {
+          const b = grid[r][c];
+          if (!b) continue;
+          const pos = getGridPos(r, c);
+          if (dist(movingBubble.x, movingBubble.y, pos.x, pos.y) < BUBBLE_R * 1.82) {
+            hit = true;
+            break;
+          }
+        }
+        if (hit) break;
+      }
+
+      if (hit) {
+        attachMovingBubble();
+      }
+
+      // safety: too far down
+      if (movingBubble && movingBubble.y > SHOOTER_Y + 40) {
+        movingBubble = null;
+        combo = 1;
+      }
+    }
+
+    function updateFallers() {
+      for (let i = fallers.length - 1; i >= 0; i--) {
+        const f = fallers[i];
+        f.x += f.vx;
+        f.y += f.vy;
+        f.vy += 0.22; // nice gravity
+        f.vx *= 0.985;
+        f.rot = (f.rot || 0) + f.vx * 0.035;
+
+        // side walls
+        const left = FIELD_X + BUBBLE_R + 3;
+        const right = FIELD_RIGHT - BUBBLE_R - 3;
+        if (f.x < left) { f.x = left; f.vx = Math.abs(f.vx) * 0.7; }
+        if (f.x > right) { f.x = right; f.vx = -Math.abs(f.vx) * 0.7; }
+
+        if (f.y > H + 60) {
+          fallers.splice(i, 1);
+        }
+      }
+    }
+
+    // ======================= TOOLS =======================
+    function useTool(tool, clickX, clickY) {
+      if (!toolUses[tool] || toolUses[tool] <= 0) {
+        // Предлагаем рекламу за инструменты, когда они закончились
+        offerRewardedForTools(tool);
+        return false;
+      }
+      if (gameState !== 'playing' || movingBubble) return false;
+
+      ensureAudio();
+      let used = false;
+      const lvl = LEVELS.find(l => l.num === currentLevel);
+
+      if (tool === 'shovel') {
+        // find closest bubble under click
+        let closest = null;
+        let cd = BUBBLE_R * 1.7;
+        for (let r = 0; r < MAX_ROWS; r++) {
+          if (!grid[r]) continue;
+          for (let c = 0; c < COLS; c++) {
+            const b = grid[r][c];
+            if (!b) continue;
+            const pos = getGridPos(r, c);
+            const d = dist(clickX, clickY, pos.x, pos.y);
+            if (d < cd) { cd = d; closest = {r, c, b, pos}; }
+          }
+        }
+        if (closest) {
+          spawnPopParticles(closest.pos.x, closest.pos.y, closest.b.color, 5, 1.2);
+          // Extra dirt for "digging" feel
+          for (let i = 0; i < 5; i++) {
+            particles.push({
+              x: closest.pos.x + (Math.random()-0.5)*12,
+              y: closest.pos.y + 8,
+              vx: (Math.random()-0.5)*2.2,
+              vy: -0.8 - Math.random()*1.4,
+              life: 24,
+              size: 2.6 + Math.random()*1.2,
+              type: 'dirt'
+            });
+          }
+          spawnFloatingText(closest.pos.x, closest.pos.y - 22, 'выкопано!', { size: 11, color: '#c17d3a', vy: -1.1, life: 32 });
+          removeBubble(closest.r, closest.c);
+          playSound('tool');
+          toolUses.shovel--;
+          stats.totalShovels++;
+          used = true;
+          // single remove does not trigger gravity/match by default (player choice)
+          const fallen = applyGravityAndFall();
+          if (fallen > 0) combo = Math.min(12, combo + 1);
+          if (checkGameOverByCeiling()) endGame(false);
+          if (countBubbles() === 0) endGame(true);
+        }
+      }
+      else if (tool === 'gardener') {
+        // area clear around clicked point
+        let target = null;
+        let bestD = 999;
+        for (let r = 0; r < MAX_ROWS; r++) {
+          if (!grid[r]) continue;
+          for (let c = 0; c < COLS; c++) {
+            const b = grid[r][c];
+            if (!b) continue;
+            const pos = getGridPos(r, c);
+            const d = dist(clickX, clickY, pos.x, pos.y);
+            if (d < bestD) { bestD = d; target = {r,c,b,pos}; }
+          }
+        }
+        if (target) {
+          const group = [];
+          const visited = new Set();
+          const queue = [[target.r, target.c]];
+          while (queue.length) {
+            const [r,c] = queue.shift();
+            const key = r*100 + c;
+            if (visited.has(key)) continue;
+            visited.add(key);
+            const pos = getGridPos(r, c);
+            if (dist(pos.x, pos.y, target.pos.x, target.pos.y) > BUBBLE_R * 2.35) continue;
+            if (getBubbleAt(r,c)) group.push([r,c]);
+            for (const nb of getNeighbors(r,c)) {
+              if (getBubbleAt(nb[0], nb[1])) queue.push(nb);
+            }
+          }
+          if (group.length >= 1) {
+            popGroup(group);
+            toolUses.gardener--;
+            stats.totalGardeners++;
+            used = true;
+            applyGravityAndFall();
+            if (checkGameOverByCeiling()) endGame(false);
+            if (countBubbles() === 0) endGame(true);
+          }
+        }
+      }
+      else if (tool === 'tractor') {
+        // find lowest occupied row and clear it completely
+        let lowest = -1;
+        for (let r = MAX_ROWS-1; r >= 0; r--) {
+          if (!grid[r]) continue;
+          let has = false;
+          for (let c = 0; c < COLS; c++) if (grid[r][c]) { has = true; break; }
+          if (has) { lowest = r; break; }
+        }
+        if (lowest >= 0) {
+          let cleared = 0;
+          for (let c = 0; c < COLS; c++) {
+            const b = getBubbleAt(lowest, c);
+            if (b) {
+              const pos = getGridPos(lowest, c);
+              spawnPopParticles(pos.x, pos.y, b.color, 4, 1);
+              removeBubble(lowest, c);
+              cleared++;
+            }
+          }
+          if (cleared > 0) {
+            playSound('tool');
+            score += cleared * 14;
+            toolUses.tractor--;
+            stats.totalTractors++;
+            used = true;
+
+            // Very satisfying tractor visual — big dirt wave + sparkles
+            spawnFloatingText(FIELD_X + FIELD_W/2, getGridPos(lowest, 0).y - 10, 'ТРАКТОР!', {
+              size: 16, color: '#ffeb3b', vy: -1.8, life: 52
+            });
+            for (let c = 0; c < COLS; c++) {
+              const px = FIELD_X + 30 + c * (HORZ_SPACING * 0.92);
+              const py = getGridPos(lowest, c).y + 6;
+              spawnPopParticles(px, py, 5, 3, 1.5);
+              // dirt spray
+              for (let d=0; d<3; d++) {
+                particles.push({
+                  x: px, y: py,
+                  vx: (Math.random()-0.5)*3.5,
+                  vy: -1.2 - Math.random()*2,
+                  life: 28,
+                  size: 2.8 + Math.random(),
+                  type: 'dirt'
+                });
+              }
+            }
+            applyGravityAndFall();
+            if (checkGameOverByCeiling()) endGame(false);
+            if (countBubbles() === 0) endGame(true);
+          }
+        }
+      }
+      else if (tool === 'harvest') {
+        // mass harvest of the color in the "next" bubble
+        const targetColor = nextColor;
+        const group = [];
+        for (let r = 0; r < MAX_ROWS; r++) {
+          if (!grid[r]) continue;
+          for (let c = 0; c < COLS; c++) {
+            const b = grid[r][c];
+            if (b && b.color === targetColor) group.push([r,c]);
+          }
+        }
+        if (group.length > 0) {
+          const pts = popGroup(group);
+          score += Math.floor(pts * 0.6); // extra harvest bonus already in pop
+          toolUses.harvest--;
+          stats.totalHarvests++;
+          used = true;
+
+          // Big celebratory harvest effect — player feels amazing
+          spawnFloatingText(FIELD_X + FIELD_W/2, FIELD_Y + 80, 'УРОЖАЙ!!!', {
+            size: 22, color: '#fff59d', vy: -1.4, life: 70, scale: 1.1
+          });
+          // Extra sparkles across the whole field
+          for (let i = 0; i < 18; i++) {
+            particles.push({
+              x: FIELD_X + 20 + Math.random() * (FIELD_W - 40),
+              y: FIELD_Y + 30 + Math.random() * (FIELD_H * 0.7),
+              vx: (Math.random() - 0.5) * 1.2,
+              vy: (Math.random() - 0.5) * 1.8 - 0.5,
+              life: 42 + Math.random() * 18,
+              size: 2.4 + Math.random() * 1.8,
+              type: 'sparkle'
+            });
+          }
+          applyGravityAndFall();
+          // big reward
+          score += group.length * 6;
+          if (checkGameOverByCeiling()) endGame(false);
+          if (countBubbles() === 0) endGame(true);
+        } else {
+          // no veggies of that color — still consume use as "failed harvest" but give consolation points
+          toolUses.harvest--;
+          score += 40;
+          used = true;
+        }
+      }
+
+      if (used) {
+        activeTool = null;
+        updateToolUI();
+        saveProgressToYandex(); // сохраняем использование инструментов
+        // re-evaluate win
+        if (countBubbles() === 0) endGame(true);
+      }
+      return used;
+    }
+
+    function updateToolUI() {
+      const container = document.getElementById('tool-buttons');
+      if (!container) return;
+      container.innerHTML = '';
+
+      // Только 4 инструмента (без «Смена» и без счётчиков на кнопках).
+      // Смена пузыря: тап по лотку «СЛЕДУЮЩИЙ» / Q / Tab.
+      // При 0 — кнопка рекламы VK для этого инструмента.
+      const tools = [
+        { id: 'shovel', label: 'Лопата', icon: 'shovel' },
+        { id: 'gardener', label: 'Огородник', icon: 'gard' },
+        { id: 'tractor', label: 'Трактор', icon: 'tract' },
+        { id: 'harvest', label: 'Урожай', icon: 'harv' }
+      ];
+
+      tools.forEach(t => {
+        const uses = toolUses[t.id] || 0;
+        const empty = uses <= 0;
+        const rewardAmt = (TOOL_REWARD_AMOUNT && TOOL_REWARD_AMOUNT[t.id]) || 2;
+
+        const div = document.createElement('button');
+        div.type = 'button';
+        div.className = 'btn tool' + (empty ? ' tool-empty' : '');
+        div.setAttribute('aria-label', empty
+          ? `${t.label} закончился — реклама +${rewardAmt}`
+          : t.label);
+        div.style.justifyContent = 'center';
+        if (empty) {
+          div.style.background = 'linear-gradient(#4a3c2e,#2c2118)';
+          div.style.border = '3px solid #c17d3a';
+          div.style.opacity = '0.95';
+        } else {
+          div.style.background = (activeTool === t.id) ? 'linear-gradient(#5c8c3f,#3f5f2a)' : 'linear-gradient(#c17d3a,#8c5528)';
+          div.style.border = (activeTool === t.id) ? '3px solid #fff' : '3px solid #e8d5a3';
+          div.style.opacity = '1';
+        }
+
+        let iconHTML = '';
+        if (t.icon === 'shovel' && SHOVEL_IMG) {
+          iconHTML = `<img src="${SHOVEL_IMG.src}" class="tool-icon" alt="" style="width:20px;height:20px;image-rendering:crisp-edges">`;
+        } else if (t.icon === 'gard') {
+          iconHTML = '🌱';
+        } else if (t.icon === 'tract') {
+          iconHTML = '🚜';
+        } else {
+          iconHTML = '🌾';
+        }
+
+        // Иконка + название (как на макете); при 0 — 📺 (реклама)
+        div.innerHTML = `
+          <span style="font-size:16px;min-width:20px;text-align:center;line-height:1;flex-shrink:0;">${empty ? '📺' : iconHTML}</span>
+          <span class="tool-label-text">${t.label.toUpperCase()}</span>
+        `;
+        div.onclick = (e) => {
+          e.stopImmediatePropagation();
+          if (empty) {
+            activeTool = null;
+            offerRewardedForTools(t.id);
+            return;
+          }
+          activeTool = (activeTool === t.id) ? null : t.id;
+          updateToolUI();
+        };
+        container.appendChild(div);
+      });
+    }
+
+    // ======================= DRAWING =======================
+    function drawBackground() {
+      // Rich tilled soil background
+      if (BG_IMG && BG_IMG.complete) {
+        ctx.drawImage(BG_IMG, 0, 0, W, H);
+        // Warm earthy overlay + gentle vignette so veggies pop beautifully
+        const grad = ctx.createRadialGradient(W*0.5, H*0.42, 180, W*0.5, H*0.58, 520);
+        grad.addColorStop(0, 'rgba(45, 32, 20, 0.18)');
+        grad.addColorStop(1, 'rgba(18, 12, 8, 0.65)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+      } else {
+        ctx.fillStyle = '#2c2118';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // === Beautiful raised garden bed ===
+      const fx = FIELD_X, fy = FIELD_Y, fw = FIELD_W, fh = FIELD_H;
+
+      // Deep outer shadow for depth
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(fx - 9, fy + 11, fw + 18, fh + 9);
+
+      // Main wooden plank border (multiple layers for rich look)
+      ctx.fillStyle = '#3a2f1f';
+      ctx.fillRect(fx - 10, fy - 10, fw + 20, fh + 20);
+
+      // Lighter wood grain / plank highlights
+      ctx.fillStyle = '#5c4630';
+      ctx.fillRect(fx - 6, fy - 6, fw + 12, fh + 12);
+
+      // Inner darker soil area with nice edge
+      ctx.fillStyle = 'rgba(38, 28, 18, 0.92)';
+      ctx.fillRect(fx, fy, fw, fh);
+
+      // Subtle furrows / tilled lines inside the bed (very farm-like and calming)
+      ctx.strokeStyle = 'rgba(28, 20, 14, 0.55)';
+      ctx.lineWidth = 1.5;
+      for (let i = 1; i < 7; i++) {
+        const yy = fy + 18 + i * (fh / 7.5);
+        ctx.beginPath();
+        ctx.moveTo(fx + 8, yy);
+        ctx.lineTo(fx + fw - 8, yy);
+        ctx.stroke();
+      }
+
+      // Beautiful light wood trim on top of the bed
+      ctx.strokeStyle = '#d4b78a';
+      ctx.lineWidth = 4.5;
+      ctx.strokeRect(fx - 2, fy - 2, fw + 4, fh + 4);
+
+      ctx.strokeStyle = '#e8d5a3';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(fx + 3, fy + 3, fw - 6, fh - 6);
+
+      // Soft inner glow so the colorful veggies feel magical
+      const innerGlow = ctx.createRadialGradient(fx + fw*0.5, fy + fh*0.38, fw*0.2, fx + fw*0.5, fy + fh*0.55, fw*0.78);
+      innerGlow.addColorStop(0, 'rgba(255,245,210,0.06)');
+      innerGlow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = innerGlow;
+      ctx.fillRect(fx + 4, fy + 4, fw - 8, fh - 8);
+    }
+
+    function drawGridBubbles() {
+      for (let r = 0; r < MAX_ROWS; r++) {
+        if (!grid[r]) continue;
+        for (let c = 0; c < COLS; c++) {
+          const b = grid[r][c];
+          if (!b) continue;
+          const pos = getGridPos(r, c);
+          const img = BUBBLE_IMGS[b.color];
+          // Very subtle living wobble — makes the field feel alive and organic
+          const wobble = Math.sin((r * 1.3 + c * 0.7 + Date.now() / 520) * 1.1) * 0.012 + 1;
+          const s = BUBBLE_R * 2 * ((b.scale || 1) * wobble);
+          const alpha = b.alpha || 1;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+
+          // Soft shadow — makes everything feel grounded and 3D
+          ctx.fillStyle = 'rgba(0,0,0,0.28)';
+          ctx.beginPath();
+          ctx.ellipse(pos.x + 2, pos.y + BUBBLE_R * 0.65, s * 0.42, s * 0.18, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (img && img.complete) {
+            // The cute veggie
+            ctx.drawImage(img, pos.x - s/2, pos.y - s/2, s, s);
+
+            // Subtle top highlight for juicy look
+            ctx.globalAlpha = alpha * 0.35;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(pos.x - s * 0.12, pos.y - s * 0.18, s * 0.28, s * 0.14, -0.6, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillStyle = '#c23a2a';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, BUBBLE_R * (b.scale||1), 0, Math.PI*2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      }
+    }
+
+    function drawFallers() {
+      for (const f of fallers) {
+        const img = BUBBLE_IMGS[f.color];
+        const s = BUBBLE_R * 2 * (f.scale || 1);
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate(f.rot || 0);
+
+        // Shadow even while tumbling — very satisfying
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(3, BUBBLE_R * 0.7, s * 0.4, s * 0.16, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (img && img.complete) {
+          ctx.drawImage(img, -s/2, -s/2, s, s);
+        } else {
+          ctx.fillStyle = '#888';
+          ctx.beginPath();
+          ctx.arc(0, 0, BUBBLE_R, 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawMoving() {
+      if (!movingBubble) return;
+      const img = BUBBLE_IMGS[movingBubble.color];
+      const s = BUBBLE_R * 2;
+      ctx.save();
+
+      // Shadow under the flying bubble
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(movingBubble.x + 1.5, movingBubble.y + BUBBLE_R * 0.6, s * 0.38, s * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (img && img.complete) {
+        ctx.drawImage(img, movingBubble.x - s/2, movingBubble.y - s/2, s, s);
+      } else {
+        ctx.fillStyle = '#ddd';
+        ctx.beginPath();
+        ctx.arc(movingBubble.x, movingBubble.y, BUBBLE_R, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawShooter() {
+      const angle = getAimDirection();
+
+      // Rich soil mound with grass tufts (very farmy)
+      ctx.fillStyle = '#3a2f1f';
+      ctx.beginPath();
+      ctx.ellipse(SHOOTER_X, SHOOTER_Y + 15, 62, 24, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#4a3726';
+      ctx.beginPath();
+      ctx.ellipse(SHOOTER_X, SHOOTER_Y + 10, 50, 17, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Little grass blades on the mound
+      ctx.strokeStyle = '#3f6a2f';
+      ctx.lineWidth = 1.8;
+      for (let i = -2; i <= 2; i++) {
+        const gx = SHOOTER_X + i * 11;
+        ctx.beginPath();
+        ctx.moveTo(gx, SHOOTER_Y + 2);
+        ctx.quadraticCurveTo(gx - 3, SHOOTER_Y - 7, gx + 1, SHOOTER_Y - 11);
+        ctx.stroke();
+      }
+
+      // Cute wooden seed launcher (looks like a farm tool)
+      ctx.save();
+      ctx.translate(SHOOTER_X, SHOOTER_Y);
+      ctx.rotate(angle + Math.PI / 2);
+
+      // Main barrel — warm wood
+      ctx.fillStyle = '#8c5528';
+      ctx.fillRect(-6, -32, 12, 52);
+
+      // Metal band / reinforcement
+      ctx.fillStyle = '#5a4630';
+      ctx.fillRect(-7.5, -18, 15, 6);
+      ctx.fillRect(-7.5, 8, 15, 6);
+
+      // Top cap
+      ctx.fillStyle = '#3a2f1f';
+      ctx.fillRect(-8, -35, 16, 7);
+
+      // Little "seed basket" detail at the front
+      ctx.fillStyle = '#6b4724';
+      ctx.fillRect(-4, 18, 8, 9);
+
+      ctx.restore();
+
+      // Current ready veggie (with tiny happy scale pulse)
+      const pulse = 0.96 + Math.sin(Date.now() / 280) * 0.025;
+      const img = BUBBLE_IMGS[currentColor];
+      const s = BUBBLE_R * 2 * pulse;
+      const bx = SHOOTER_X + Math.cos(angle) * 34;
+      const by = SHOOTER_Y + Math.sin(angle) * 34;
+
+      // Soft glow behind the ready bubble
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#fff8d1';
+      ctx.beginPath();
+      ctx.arc(bx, by, s * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      if (img && img.complete) {
+        ctx.drawImage(img, bx - s/2, by - s/2, s, s);
+      }
+
+      // Next preview — in a nice little wooden tray (тап = смена с current)
+      const nx = SHOOTER_X - 98;
+      const ny = SHOOTER_Y + 4;
+      const swapReady = shotsUntilSwap <= 0 && gameState === 'playing';
+
+      // Tray shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(nx + 1, ny + 18, 22, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Подсветка когда смена готова
+      if (swapReady) {
+        ctx.save();
+        ctx.globalAlpha = 0.35 + Math.sin(Date.now() / 220) * 0.12;
+        ctx.strokeStyle = '#ffeb3b';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(nx - 21, ny - 18, 42, 40);
+        ctx.restore();
+      }
+
+      // Wooden tray
+      ctx.fillStyle = swapReady ? '#6a5238' : '#5c4630';
+      ctx.fillRect(nx - 19, ny - 4, 38, 22);
+      ctx.fillStyle = '#3a2f1f';
+      ctx.fillRect(nx - 17, ny - 2, 34, 18);
+
+      const nimg = BUBBLE_IMGS[nextColor];
+      if (nimg && nimg.complete) {
+        ctx.drawImage(nimg, nx - 14, ny - 14, 28, 28);
+      }
+
+      // Подпись по центру лотка (без счётчика кулдауна)
+      ctx.save();
+      ctx.font = 'bold 9px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = swapReady ? '#ffeb3b' : '#c17d3a';
+      ctx.fillText(swapReady ? 'СМЕНА' : 'СЛЕДУЮЩИЙ', nx, ny + 24);
+      ctx.restore();
+    }
+
+    function drawTrajectory() {
+      if (!isAiming || movingBubble || gameState !== 'playing') return;
+
+      const angle = getAimDirection();
+      let x = SHOOTER_X;
+      let y = SHOOTER_Y - 6;
+      let vx = Math.cos(angle) * 9.6;
+      let vy = Math.sin(angle) * 9.6;
+
+      const isTouchAim = touchAiming;
+      ctx.strokeStyle = isTouchAim ? 'rgba(255, 235, 150, 0.85)' : 'rgba(232, 213, 163, 0.65)';
+      ctx.lineWidth = isTouchAim ? 4 : 2.5;
+      ctx.setLineDash(isTouchAim ? [6, 4] : [5, 7]);
+
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+
+      const left = FIELD_X + BUBBLE_R + 4;
+      const right = FIELD_RIGHT - BUBBLE_R - 4;
+      const top = FIELD_Y + BUBBLE_R + 2;
+      const maxSteps = 52;
+
+      for (let step = 0; step < maxSteps; step++) {
+        x += vx;
+        y += vy;
+
+        if (x < left) { x = left; vx = -vx; }
+        if (x > right) { x = right; vx = -vx; }
+        if (y < top) break;
+
+        // crude collision stop for preview
+        let hit = false;
+        for (let r = 0; r < MAX_ROWS; r++) {
+          if (!grid[r]) continue;
+          for (let c = 0; c < COLS; c++) {
+            const b = grid[r][c];
+            if (!b) continue;
+            const pos = getGridPos(r, c);
+            if (dist(x, y, pos.x, pos.y) < BUBBLE_R * 1.75) { hit = true; break; }
+          }
+          if (hit) break;
+        }
+        if (hit) break;
+
+        if (step % 3 === 0) ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawHUD() {
+      // Счётчик «до спуска» только в DOM HUD (#hud-shots) — на canvas не рисуем,
+      // чтобы не перекрывать пузыри сверху (замечание модерации).
+      ctx.save();
+
+      // "Roots reaching the surface" danger line — thematic and clear
+      ctx.strokeStyle = 'rgba(120, 55, 35, 0.65)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([2, 5]);
+      ctx.beginPath();
+      ctx.moveTo(FIELD_X + 8, SHOOTER_Y - 13);
+      ctx.lineTo(FIELD_RIGHT - 8, SHOOTER_Y - 13);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Little root tips for extra charm
+      ctx.fillStyle = 'rgba(90, 45, 30, 0.7)';
+      for (let i = 0; i < 5; i++) {
+        const rx = FIELD_X + 30 + i * ((FIELD_W - 60) / 4);
+        ctx.fillRect(rx - 1, SHOOTER_Y - 17, 2, 5);
+      }
+      ctx.restore();
+    }
+
+    function drawActiveToolCursor() {
+      if (!activeTool || gameState !== 'playing') return;
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      if (activeTool === 'shovel' && SHOVEL_IMG) {
+        // Position so the BLADE (bottom of the shovel image) is at/near the cursor for digging
+        ctx.drawImage(SHOVEL_IMG, mouseX - 14, mouseY - 50, 28, 55);
+      } else {
+        // simple indicator
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(mouseX, mouseY, 19, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.fillStyle = '#5c8c3f';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText(activeTool === 'gardener' ? '🌱' : (activeTool === 'tractor' ? '🚜' : '🌾'), mouseX - 8, mouseY + 6);
+      }
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.save();
+      if (screenShake > 0.5) {
+        ctx.translate((Math.random()-0.5)*screenShake, (Math.random()-0.5)*screenShake * 0.6);
+        screenShake *= 0.82;
+      }
+
+      drawBackground();
+
+      // field clipping mask (optional nice touch)
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(FIELD_X + 3, FIELD_Y + 3, FIELD_W - 6, FIELD_H - 6);
+      ctx.clip();
+
+      drawGridBubbles();
+      drawFallers();
+      drawMoving();
+      ctx.restore();
+
+      drawShooter();
+      drawTrajectory();
+      drawParticles();
+      drawFloatingTexts();   // score pops, "УРОЖАЙ!!!" etc — pure dopamine
+      drawHUD();
+      drawActiveToolCursor();
+
+      // subtle vignette on field
+      const grad = ctx.createRadialGradient(
+        FIELD_X + FIELD_W*0.5, FIELD_Y + FIELD_H*0.4, FIELD_W*0.35,
+        FIELD_X + FIELD_W*0.5, FIELD_Y + FIELD_H*0.55, FIELD_W*0.72
+      );
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.25)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(FIELD_X, FIELD_Y, FIELD_W, FIELD_H);
+
+      ctx.restore();
+
+      // update DOM hud
+      const elLevel = document.getElementById('hud-level');
+      const elScore = document.getElementById('hud-score');
+      const elCombo = document.getElementById('hud-combo');
+      const elShots = document.getElementById('hud-shots');
+      if (elLevel) elLevel.textContent = currentLevel;
+      if (elScore) elScore.textContent = Math.floor(score);
+      if (elCombo) {
+        elCombo.textContent = `x${combo}`;
+        elCombo.style.color = combo > 2 ? '#c17d3a' : '#5c8c3f';
+      }
+      if (elShots) elShots.textContent = Math.max(0, shotsUntilDrop);
+    }
+
+    // ======================= GAME LOOP =======================
+    function update() {
+      if (gameState !== 'playing') return;
+
+      updateMoving();
+      updateFallers();
+      updateParticles();
+      updateFloatingTexts();
+
+      // occasional auto re-check win condition
+      if (countBubbles() === 0 && !movingBubble) {
+        endGame(true);
+      }
+    }
+
+    // Периодическое автосохранение прогресса (требование 1.9 — сохранение сразу после действий + устойчивость к перезагрузке)
+    let autoSaveInterval = null;
+    function startAutoSave() {
+      if (autoSaveInterval) clearInterval(autoSaveInterval);
+      autoSaveInterval = setInterval(() => {
+        if (gameState === 'playing') {
+          saveProgressToYandex();
+        }
+      }, 15000); // каждые 15 секунд
+    }
+
+    function stopAutoSave() {
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval);
+        autoSaveInterval = null;
+      }
+    }
+
+    let raf = null;
+    function stopGameLoop() {
+      if (raf != null) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+    }
+    function ensureGameLoop() {
+      // Один RAF-цикл: повторные start/resume/реклама не ускоряют игру
+      stopGameLoop();
+      function tick() {
+        update();
+        draw();
+        raf = requestAnimationFrame(tick);
+      }
+      raf = requestAnimationFrame(tick);
+    }
+    function gameLoop() {
+      ensureGameLoop();
+    }
+
+    // ======================= INPUT =======================
+    function getCanvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (W / rect.width),
+        y: (e.clientY - rect.top) * (H / rect.height)
+      };
+    }
+
+    function onMouseMove(e) {
+      const p = getCanvasPos(e);
+      mouseX = p.x;
+      mouseY = p.y;
+
+      if (gameState === 'playing' && !movingBubble) {
+        const dx = mouseX - SHOOTER_X;
+        const dy = mouseY - SHOOTER_Y;
+        let ang = Math.atan2(dy, dx);
+        // clamp to upward shooting cone (balls are above the shooter)
+        const minA = -Math.PI + 0.25; // nearly horizontal left, slightly upward
+        const maxA = -0.25;           // nearly horizontal right, slightly upward
+        ang = clamp(ang, minA, maxA);
+        aimAngle = ang;
+        isAiming = true;
+      }
+      canvas.style.cursor = (activeTool) ? 'none' : 'crosshair';
+    }
+
+    function onMouseDown(e) {
+      const p = getCanvasPos(e);
+      if (gameState !== 'playing') return;
+
+      // Клик по лотку «СЛЕДУЮЩИЙ» — смена пузыря
+      if (isNextTrayHit(p.x, p.y)) {
+        trySwapBubbles();
+        return;
+      }
+
+      if (activeTool) {
+        useTool(activeTool, p.x, p.y);
+        return;
+      }
+
+      // normal shoot
+      if (!movingBubble) {
+        isAiming = true;
+        const dx = p.x - SHOOTER_X;
+        const dy = p.y - SHOOTER_Y;
+        let ang = Math.atan2(dy, dx);
+        // clamp to upward shooting cone (balls are above the shooter)
+        const minA = -Math.PI + 0.25;
+        const maxA = -0.25;
+        aimAngle = clamp(ang, minA, maxA);
+        shootBubble();
+      }
+    }
+
+    function onMouseUp() {
+      isAiming = false;
+    }
+
+    function onKeyDown(e) {
+      if (gameState !== 'playing') {
+        if (e.key.toLowerCase() === 'escape' && document.getElementById('pause').classList.contains('active')) {
+          resumeGame();
+        }
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        pauseGame();
+        return;
+      }
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        if (!movingBubble) shootBubble();
+      }
+      if (e.key.toLowerCase() === 'r') {
+        restartLevel();
+      }
+      // Смена текущего ↔ следующего пузыря
+      if (e.key.toLowerCase() === 'q' || e.key === 'Tab') {
+        e.preventDefault();
+        trySwapBubbles();
+      }
+
+      // quick tool select 1-4 (при 0 — предложение рекламы за этот инструмент)
+      if (e.key === '1') {
+        if ((toolUses.shovel || 0) > 0) { activeTool = (activeTool === 'shovel') ? null : 'shovel'; updateToolUI(); }
+        else offerRewardedForTools('shovel');
+      }
+      if (e.key === '2') {
+        if ((toolUses.gardener || 0) > 0) { activeTool = (activeTool === 'gardener') ? null : 'gardener'; updateToolUI(); }
+        else offerRewardedForTools('gardener');
+      }
+      if (e.key === '3') {
+        if ((toolUses.tractor || 0) > 0) { activeTool = (activeTool === 'tractor') ? null : 'tractor'; updateToolUI(); }
+        else offerRewardedForTools('tractor');
+      }
+      if (e.key === '4') {
+        if ((toolUses.harvest || 0) > 0) { activeTool = (activeTool === 'harvest') ? null : 'harvest'; updateToolUI(); }
+        else offerRewardedForTools('harvest');
+      }
+    }
+
+    function setupInput() {
+      canvas.addEventListener('mousemove', onMouseMove);
+      canvas.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('keydown', onKeyDown);
+
+      // Адаптивный размер canvas + fullscreen на мобильных (требования 1.6.1.1, 1.10, 1.6.2)
+      window.addEventListener('resize', resizeCanvas);
+      window.addEventListener('orientationchange', resizeCanvas);
+      resizeCanvas(); // первый вызов
+
+      // Попытка полноэкранного режима на мобильных при старте игры
+      if (/Mobi|Android/i.test(navigator.userAgent)) {
+        canvas.addEventListener('touchstart', tryFullscreenOnMobile, { once: true });
+      }
+
+      // touch support - drag to aim (finger down = aim + preview), lift finger = shoot.
+      // This fixes the "no aiming" problem on mobile. Tap-to-shoot in direction also works for quick shots.
+      canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (gameState !== 'playing') return;
+        const rect = canvas.getBoundingClientRect();
+        const t = e.touches[0];
+        const p = { x: (t.clientX - rect.left) * (W/rect.width), y: (t.clientY - rect.top) * (H/rect.height) };
+        mouseX = p.x; mouseY = p.y;
+        touchOnSwapZone = false;
+
+        // Тап по лотку «СЛЕДУЮЩИЙ» — смена, без выстрела
+        if (isNextTrayHit(p.x, p.y)) {
+          trySwapBubbles();
+          touchOnSwapZone = true;
+          isAiming = false;
+          touchAiming = false;
+          return;
+        }
+
+        if (activeTool) {
+          useTool(activeTool, p.x, p.y);
+          return;
+        }
+        if (!movingBubble) {
+          const dx = p.x - SHOOTER_X;
+          const dy = p.y - SHOOTER_Y;
+          let ang = Math.atan2(dy, dx);
+          const minA = -Math.PI + 0.25;
+          const maxA = -0.25;
+          aimAngle = clamp(ang, minA, maxA);
+          isAiming = true;
+          touchAiming = true;
+          // trajectory will draw automatically because isAiming is now true
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (gameState !== 'playing' || !touchAiming) return;
+        const rect = canvas.getBoundingClientRect();
+        const t = e.touches[0];
+        const p = { x: (t.clientX - rect.left) * (W/rect.width), y: (t.clientY - rect.top) * (H/rect.height) };
+        mouseX = p.x; mouseY = p.y;
+        const dx = p.x - SHOOTER_X;
+        const dy = p.y - SHOOTER_Y;
+        let ang = Math.atan2(dy, dx);
+        const minA = -Math.PI + 0.25;
+        const maxA = -0.25;
+        aimAngle = clamp(ang, minA, maxA);
+        isAiming = true;
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        if (touchOnSwapZone) {
+          touchOnSwapZone = false;
+          isAiming = false;
+          touchAiming = false;
+          return;
+        }
+        if (gameState === 'playing' && touchAiming && !movingBubble) {
+          shootBubble();
+        }
+        isAiming = false;
+        touchAiming = false;
+      }, { passive: false });
+
+      canvas.addEventListener('touchcancel', (e) => {
+        isAiming = false;
+        touchAiming = false;
+        touchOnSwapZone = false;
+      });
+
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
+    // ======================= GAME FLOW =======================
+    function startGame() {
+      if (!gameReady) return;
+      if (!acceptedLegal) {
+        document.getElementById('menu').classList.remove('active');
+        document.getElementById('legal-gate').classList.add('active');
+        return;
+      }
+      hideAllOverlays();
+      document.getElementById('ingame-hud').style.display = 'block';
+      document.getElementById('tools-hud').style.display = 'flex';
+
+      score = 0;
+      currentLevel = 1;
+      stats = loadStats(); // refresh
+
+      // Начинаем новую игру — сбрасываем сохранённый прогресс уровня (не legal)
+      savedProgress = null;
+      try { localStorage.removeItem('bubblefarm_progress'); } catch(e){}
+
+      setupLevel(1);
+      updateToolUI();
+
+      gameState = 'playing';
+      resizeCanvas();
+      startAutoSave();
+
+      yandexGameplayStart();
+
+      ensureGameLoop();
+    }
+
+    function endGame(won) {
+      // Сразу останавливаем геймплей при любом завершении уровня (1.19.3)
+      yandexGameplayStop();
+
+      gameState = won ? 'levelcomplete' : 'gameover';
+
+      if (won) {
+        const lvl = LEVELS.find(l => l.num === currentLevel) || LEVELS[LEVELS.length-1];
+        const earned = score - levelStartScore;
+        const remaining = countBubbles();
+        const bonus = Math.max(0, Math.floor(remaining * 4) + (shotsFired < 18 ? 120 : 0));
+
+        score += bonus;
+        stats.levelsCompleted = Math.max(stats.levelsCompleted, currentLevel);
+
+        const html = `
+          <div style="margin-bottom:8px;">Уровень <span class="level-badge">${currentLevel}</span> пройден!</div>
+          <div style="font-size:15px; margin:4px 0;">Набрано очков на уровне: <strong>${earned}</strong></div>
+          <div style="font-size:14px;">Бонус за остатки и скорость: <strong>+${bonus}</strong></div>
+          <div style="margin-top:12px; font-size:18px; color:#e8d5a3;">Всего: <strong>${Math.floor(score)}</strong></div>
+        `;
+        document.getElementById('complete-stats').innerHTML = html;
+
+        hideAllOverlays();
+        document.getElementById('level-complete').classList.add('active');
+      } else {
+        const html = `
+          <div>Уровень: <span class="level-badge">${currentLevel}</span></div>
+          <div style="margin:10px 0 4px;">Итоговый счёт: <strong>${Math.floor(score)}</strong></div>
+          <div style="font-size:13px; color:#c17d3a;">Максимальное комбо: x${stats.maxCombo}</div>
+        `;
+        document.getElementById('over-stats').innerHTML = html;
+
+        hideAllOverlays();
+        document.getElementById('game-over').classList.add('active');
+      }
+
+      saveStats();
+      saveProgressToYandex();   // VK Storage + localStorage
+
+      // Interstitial НЕ показываем автоматически после победы.
+      // Реклама между экранами — по клику «Следующий уровень».
+
+      document.getElementById('ingame-hud').style.display = 'none';
+      document.getElementById('tools-hud').style.display = 'none';
+    }
+
+    function nextLevel() {
+      if (!gameReady) return;
+      hideAllOverlays();
+      document.getElementById('ingame-hud').style.display = 'block';
+      document.getElementById('tools-hud').style.display = 'flex';
+
+      // Interstitial только после клика «Следующий уровень» — логическая пауза (4.4)
+      showInterstitialAd(() => {
+        proceedToNextLevel();
+      });
+    }
+
+    function proceedToNextLevel() {
+      let next = currentLevel + 1;
+      if (next > LEVELS.length) {
+        // endless: добавляем новый уровень и идём на него
+        const last = LEVELS[LEVELS.length - 1];
+        const endless = {
+          ...last,
+          num: next,
+          startRows: Math.min(11, last.startRows + 1),
+          dropEvery: Math.max(2, last.dropEvery - 1),
+          goalScore: last.goalScore + 420,
+          tools: { shovel: 5, gardener: 3, tractor: 2, harvest: 2 }
+        };
+        LEVELS.push(endless);
+      }
+
+      setupLevel(next);
+      updateToolUI();
+      gameState = 'playing';
+      resizeCanvas();
+      yandexGameplayStart();
+      ensureGameLoop();
+    }
+
+    function restartLevel() {
+      if (!gameReady) return;
+      hideAllOverlays();
+      document.getElementById('ingame-hud').style.display = 'block';
+      document.getElementById('tools-hud').style.display = 'flex';
+
+      // Сохраняем baseline очков уровня (setupLevel иначе перезапишет levelStartScore текущим score)
+      const keepScore = levelStartScore;
+      score = keepScore;
+      setupLevel(currentLevel);
+      score = keepScore;
+      levelStartScore = keepScore;
+      updateToolUI();
+      gameState = 'playing';
+      resizeCanvas();
+      yandexGameplayStart();
+      ensureGameLoop();
+      saveProgressToYandex();
+    }
+
+    // Продолжение уровня через рекламу за награду
+    function continueWithRewardedAd() {
+      showRewardedAd(() => {
+        // Награда выдана — даём игроку второй шанс
+        hideAllOverlays();
+        document.getElementById('ingame-hud').style.display = 'block';
+        document.getElementById('tools-hud').style.display = 'flex';
+
+        // Восстанавливаем немного инструментов + даём "жизнь" (убираем опасность на пару строк)
+        toolUses.shovel = Math.max(toolUses.shovel, 3);
+        toolUses.gardener = Math.max(toolUses.gardener || 0, 2);
+        toolUses.tractor = Math.max(toolUses.tractor || 0, 1);
+        toolUses.harvest = Math.max(toolUses.harvest || 0, 1);
+        shotsUntilSwap = 0; // после рекламы смена снова доступна
+
+        // Поднимаем потолок чуть-чуть назад (даём пространство)
+        if (ceilingOffset > 1) ceilingOffset -= 1;
+
+        updateToolUI();
+        gameState = 'playing';
+        yandexGameplayStart();
+        ensureGameLoop();
+
+        // Сообщаем игроку, что награда получена
+        spawnFloatingText(SHOOTER_X, SHOOTER_Y - 80, '+3 инструмента!', {
+          size: 16,
+          color: '#a8d07a',
+          vy: -2.5,
+          life: 55
+        });
+
+        saveProgressToYandex();
+      }, () => {
+        // Если игрок закрыл рекламу без просмотра — просто возвращаем на экран поражения
+        document.getElementById('game-over').classList.add('active');
+      });
+    }
+
+    function pauseGame() {
+      if (gameState !== 'playing') return;
+      gameState = 'paused';
+      stopAutoSave();
+
+      yandexGameplayStop(); // централизованно (1.19.3)
+
+      document.getElementById('pause').classList.add('active');
+    }
+
+    function resumeGame() {
+      hideAllOverlays();
+      document.getElementById('ingame-hud').style.display = 'block';
+      document.getElementById('tools-hud').style.display = 'flex';
+      gameState = 'playing';
+      startAutoSave();
+      yandexGameplayStart(); // возобновляем геймплей после паузы
+      ensureGameLoop();
+    }
+
+    function quitToMenu() {
+      stopGameLoop();
+      hideAllOverlays();
+      document.getElementById('menu').classList.add('active');
+      document.getElementById('ingame-hud').style.display = 'none';
+      document.getElementById('tools-hud').style.display = 'none';
+      gameState = 'menu';
+      stopAutoSave();
+
+      yandexGameplayStop(); // игрок вышел в меню
+
+      saveStats();
+      saveProgressToYandex();
+      drawStaticMenuBackground();
+      updateContinueButton(); // обновляем видимость кнопки "Продолжить"
+    }
+
+    function updateContinueButton() {
+      const btn = document.getElementById('continue-btn');
+      if (!btn) return;
+
+      if (hasSavedProgress()) {
+        btn.style.display = 'inline-block';
+        btn.textContent = `ПРОДОЛЖИТЬ УРОВЕНЬ ${savedProgress.lastLevel || 1}`;
+      } else {
+        btn.style.display = 'none';
+      }
+    }
+
+    function toggleMute() {
+      isMuted = !isMuted;
+      const btn = document.getElementById('mute-btn');
+      if (btn) btn.textContent = isMuted ? '🔇' : '🔊';
+
+      if (isMuted) {
+        suspendAudio();
+      } else if (gameState === 'playing') {
+        resumeAudio();
+      }
+    }
+
+    // ======================= АДАПТИВНЫЙ CANVAS =======================
+    // На мобилке показываем crop вокруг грядки (без пустой правой половины 980px) —
+    // иначе поле получается «очень маленьким» (замечание модерации VK).
+    // Логические координаты canvas (980×700) не меняем — touch/mouse через getBoundingClientRect.
+    function resizeCanvas() {
+      const container = document.getElementById('game-container') || document.body;
+      const viewport = document.getElementById('canvas-viewport');
+      const rotatePrompt = document.getElementById('rotate-prompt');
+
+      const isMobile = /Mobi|Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)
+        || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && Math.min(window.innerWidth, window.innerHeight) < 820)
+        || window.innerWidth < 820;
+      const isPortrait = window.innerHeight > window.innerWidth;
+
+      document.body.classList.toggle('mobile', !!isMobile);
+      document.body.classList.toggle('portrait', !!(isMobile && isPortrait));
+      document.body.classList.toggle('landscape', !!(isMobile && !isPortrait));
+
+      if (rotatePrompt) {
+        if (isMobile && isPortrait && gameState === 'playing') {
+          rotatePrompt.style.display = 'flex';
+          rotatePrompt.style.alignItems = 'center';
+          rotatePrompt.style.justifyContent = 'center';
+          const t = document.getElementById('rotate-prompt-text');
+          if (t) t.textContent = 'Удобнее в альбоме';
+        } else {
+          rotatePrompt.style.display = 'none';
+        }
+      }
+
+      canvas.style.display = 'block';
+
+      // HUD справа; поле чуть выше центра экрана (не строго по середине)
+      const safeTop = 0;
+      const safeBottom = 0;
+      let padTop = 0;
+      let padSide = isMobile ? 4 : 20;
+
+      if (isMobile && isPortrait) {
+        padTop = 6;
+        padSide = 4;
+      } else if (isMobile) {
+        padTop = 4;
+        padSide = 6;
+      } else {
+        padTop = 12; // небольшой отступ сверху, блок не «висит» внизу
+      }
+
+      const availW = Math.max(240, window.innerWidth - padSide * 2);
+      // снизу оставляем запас — визуально поле выше
+      const bottomSlack = isMobile ? 12 : 28;
+      const availH = Math.max(180, window.innerHeight - padTop - bottomSlack - safeTop - safeBottom);
+
+      // Кадр = только грядка (+ полоска HUD справа). Без пустого «подвала» canvas снизу.
+      // Место под инструменты — отдельная полка (padding-bottom viewport), сразу под рамой.
+      const bedPad = 12;
+      // Шире полоска справа под крупный HUD + полоски-разделители
+      const hudStripCanvas = isMobile ? 80 : 110;
+      // Полка под инструменты: заголовок + ряд кнопок (как на макете)
+      const toolsReserve = isMobile ? 64 : 88;
+      let cropL = Math.max(0, FIELD_X - bedPad);
+      let cropT = Math.max(0, FIELD_Y - 22);
+      let cropR = Math.min(W, FIELD_RIGHT + bedPad + hudStripCanvas);
+      // Низ по деревянному краю грядки
+      let cropB = Math.min(H, FIELD_BOTTOM + 12);
+
+      const cropW = Math.max(1, cropR - cropL);
+      const cropH = Math.max(1, cropB - cropT);
+      const aspect = cropW / cropH;
+
+      // Высота грядки + полка инструментов должна влезать в окно
+      let viewW = availW;
+      let viewH = viewW / aspect;
+      if (viewH + toolsReserve > availH) {
+        viewH = Math.max(160, availH - toolsReserve);
+        viewW = viewH * aspect;
+      }
+
+      if (!isMobile) {
+        const MAX_W = 780;
+        const MAX_H = 860;
+        if (viewW > MAX_W) { viewW = MAX_W; viewH = viewW / aspect; }
+        if (viewH > MAX_H) { viewH = MAX_H; viewW = viewH * aspect; }
+        if (viewH + toolsReserve > availH) {
+          viewH = Math.max(160, availH - toolsReserve);
+          viewW = viewH * aspect;
+        }
+      }
+
+      viewW = Math.floor(viewW);
+      viewH = Math.floor(viewH);
+      const scale = viewW / cropW;
+
+      if (viewport) {
+        // content-box: height = грядка; padding-bottom = полка инструментов (без дыры canvas)
+        viewport.style.boxSizing = 'content-box';
+        viewport.style.width = viewW + 'px';
+        viewport.style.height = viewH + 'px';
+        viewport.style.paddingBottom = toolsReserve + 'px';
+        viewport.style.overflow = 'hidden';
+        viewport.style.background = '#2c2118';
+      }
+
+      // Инструменты = ширина игровой зоны (деревянная грядка), как стрелки на макете
+      const toolsHud = document.getElementById('tools-hud');
+      if (toolsHud) {
+        const woodPad = 10; // outer wood border в drawBackground
+        // Левый/правый край грядки в координатах viewport
+        let bedLeft = Math.round((FIELD_X - woodPad - cropL) * scale);
+        let bedWidth = Math.round((FIELD_W + woodPad * 2) * scale);
+        const edgePad = isMobile ? 4 : 6;
+        bedLeft = Math.max(edgePad, bedLeft);
+        // не заезжать под полоску HUD справа
+        const maxRight = viewW - Math.round(hudStripCanvas * scale) - edgePad;
+        if (bedLeft + bedWidth > maxRight) {
+          bedWidth = Math.max(160, maxRight - bedLeft);
+        }
+        toolsHud.style.left = bedLeft + 'px';
+        toolsHud.style.right = 'auto';
+        toolsHud.style.width = bedWidth + 'px';
+        toolsHud.style.maxWidth = bedWidth + 'px';
+        toolsHud.style.bottom = (isMobile ? 5 : 8) + 'px';
+        toolsHud.style.top = 'auto';
+        toolsHud.style.transform = 'none';
+      }
+
+      // Крупный HUD — справа, почти на всю высоту грядки
+      const hudEl = document.getElementById('ingame-hud');
+      if (hudEl) {
+        const stripW = Math.max(72, Math.round(hudStripCanvas * scale));
+        const hudW = Math.max(64, Math.min(stripW - 6, isMobile ? 70 : 96));
+        const hudTop = Math.max(6, Math.round(viewH * 0.03));
+        const hudH = Math.max(220, Math.round(viewH * 0.90));
+        hudEl.style.right = Math.max(3, Math.round((stripW - hudW) / 2)) + 'px';
+        hudEl.style.left = 'auto';
+        hudEl.style.top = hudTop + 'px';
+        hudEl.style.height = hudH + 'px';
+        hudEl.style.width = hudW + 'px';
+        hudEl.style.transform = 'none';
+      }
+
+      const fullDispW = Math.max(1, Math.floor(W * scale));
+      const fullDispH = Math.max(1, Math.floor(H * scale));
+      // Только грядка/canvas (FIELD_*): сдвиг по Y; HUD и #tools-hud не двигаем
+      // -1cm (ранее) + 30px вниз
+      const fieldLiftY = 'calc(-1cm + 30px)';
+      canvas.style.width = fullDispW + 'px';
+      canvas.style.height = fullDispH + 'px';
+      canvas.style.margin = '0';
+      canvas.style.transform =
+        `translate(${Math.round(-cropL * scale)}px, calc(${Math.round(-cropT * scale)}px + ${fieldLiftY}))`;
+
+      // Центр экрана: всё поле (#play-stack / #canvas-viewport) по горизонтали и вертикали
+      container.style.display = 'flex';
+      container.style.flexDirection = 'row';
+      container.style.alignItems = 'center';      // вертикаль
+      container.style.justifyContent = 'center';  // горизонталь
+      container.style.width = '100%';
+      container.style.height = '100%';
+      container.style.paddingTop = Math.max(0, padTop) + 'px';
+      container.style.paddingBottom = Math.max(8, safeBottom + (isMobile ? 8 : 16)) + 'px';
+      container.style.paddingLeft = padSide + 'px';
+      container.style.paddingRight = padSide + 'px';
+      container.style.boxSizing = 'border-box';
+      const playStack = document.getElementById('play-stack');
+      if (playStack) {
+        playStack.style.marginTop = '0';
+        playStack.style.marginLeft = 'auto';
+        playStack.style.marginRight = 'auto';
+      }
+
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden';
+      document.body.style.touchAction = 'none';
+      document.body.style.width = '100%';
+      document.body.style.height = '100%';
+
+      // Пересобрать кнопки инструментов под новый layout (labels hide on mobile)
+      if (gameState === 'playing') {
+        try { updateToolUI(); } catch (e) {}
+      }
+    }
+
+    function tryFullscreenOnMobile() {
+      // Пытаемся включить fullscreen на мобильных (требование 1.6.1.1)
+      const el = document.documentElement;
+      if (el.requestFullscreen) {
+        el.requestFullscreen().catch(() => {});
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+      } else if (el.msRequestFullscreen) {
+        el.msRequestFullscreen();
+      }
+    }
+
+    function hideAllOverlays() {
+      document.querySelectorAll('.overlay').forEach(o => {
+        // dialog / legal-gate / legal-viewer не закрываем «вслепую»
+        if (o.id === 'dialog-overlay') return;
+        if (o.id === 'legal-viewer') return;
+        if (o.id === 'legal-gate' && !acceptedLegal) return;
+        o.classList.remove('active');
+      });
+    }
+
+    function showStats() {
+      hideAllOverlays();
+      const s = loadStats();
+      const content = document.getElementById('stats-content');
+      content.innerHTML = `
+        <div class="stat">🏆 Рекорд: <strong>${s.highScore}</strong></div>
+        <div class="stat">🥕 Всего собрано овощей: <strong>${s.totalPopped}</strong></div>
+        <div class="stat">🔥 Лучшее комбо: <strong>x${s.maxCombo}</strong></div>
+        <div class="stat">🌾 Пройдено уровней: <strong>${s.levelsCompleted}</strong></div>
+        <div style="margin-top:10px; font-size:13px; opacity:0.85;">
+          Лопатой: ${s.totalShovels} &nbsp;•&nbsp; Огородником: ${s.totalGardeners}<br>
+          Трактором: ${s.totalTractors} &nbsp;•&nbsp; Урожаем: ${s.totalHarvests}
+        </div>
+      `;
+      document.getElementById('stats').classList.add('active');
+    }
+
+    function hideStats() {
+      hideAllOverlays();
+      document.getElementById('menu').classList.add('active');
+    }
+
+    function showHowTo() {
+      hideAllOverlays();
+      document.getElementById('howto').classList.add('active');
+    }
+    function hideHowTo() {
+      hideAllOverlays();
+      document.getElementById('menu').classList.add('active');
+    }
+
+    function loadStats() {
+      try {
+        const raw = localStorage.getItem('bubblefarm_stats');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return { ...stats, ...parsed };
+        }
+      } catch(e){}
+      return { ...stats };
+    }
+
+    function saveStats() {
+      const isNewRecord = score > stats.highScore;
+      if (isNewRecord) stats.highScore = Math.floor(score);
+
+      try {
+        localStorage.setItem('bubblefarm_stats', JSON.stringify(stats));
+        saveProgressToYandex();
+        if (isNewRecord) submitScoreToLeaderboard(stats.highScore);
+      } catch(e){}
+    }
+
+    async function resetProgress() {
+      const ok = await showConfirmDialog(
+        'Сбросить всю статистику и сохранённый прогресс? Это действие нельзя отменить.',
+        'Сброс прогресса'
+      );
+      if (!ok) return;
+      try {
+        localStorage.removeItem('bubblefarm_stats');
+        localStorage.removeItem('bubblefarm_progress');
+      } catch (e) {}
+      savedProgress = null;
+      stats = { highScore:0, totalPopped:0, maxCombo:1, levelsCompleted:0, totalShovels:0, totalGardeners:0, totalTractors:0, totalHarvests:0 };
+
+      // Очистка VK Storage
+      try {
+        const bridge = getVkBridge();
+        if (vkBridgeReady && bridge) {
+          await bridge.send('VKWebAppStorageSet', { key: VK_STORAGE_KEY, value: '' });
+        }
+      } catch (e) {
+        console.warn('[VK] clear storage error', e);
+      }
+
+      updateContinueButton();
+      await showAlertDialog('Прогресс сброшен. Начните новую игру!', 'Готово');
+    }
+
+    function drawStaticMenuBackground() {
+      // Charming menu background with personality
+      ctx.save();
+      if (BG_IMG && BG_IMG.complete) {
+        ctx.drawImage(BG_IMG, 0, 0, W, H);
+      } else {
+        ctx.fillStyle = '#2c2118';
+        ctx.fillRect(0,0,W,H);
+      }
+      ctx.fillStyle = 'rgba(26, 18, 12, 0.72)';
+      ctx.fillRect(0,0,W,H);
+
+      // Scattered happy veggies around the title area (feels abundant and fun)
+      const positions = [
+        [95, 72], [175, 95], [870, 68], [790, 102], [240, 58],
+        [720, 55], [130, 130], [840, 135], [310, 48]
+      ];
+      positions.forEach(([ix, iy], idx) => {
+        const img = BUBBLE_IMGS[idx % 7];
+        if (img) {
+          const sc = 0.78 + (idx % 3) * 0.07;
+          const rot = Math.sin(idx) * 0.12;
+          ctx.save();
+          ctx.translate(ix, iy);
+          ctx.rotate(rot);
+          ctx.globalAlpha = 0.92;
+          ctx.drawImage(img, -21 * sc, -21 * sc, 42 * sc, 42 * sc);
+          ctx.restore();
+        }
+      });
+
+      // Gentle soil highlight at bottom for grounding
+      const soilGrad = ctx.createLinearGradient(0, H - 140, 0, H);
+      soilGrad.addColorStop(0, 'rgba(0,0,0,0)');
+      soilGrad.addColorStop(1, 'rgba(18,12,8,0.6)');
+      ctx.fillStyle = soilGrad;
+      ctx.fillRect(0, H - 140, W, 140);
+
+      ctx.restore();
+    }
+
+    // ======================= VK CLOUD STORAGE / ADS / SOCIAL =======================
+
+    let acceptedLegal = false;
+
+    function buildSavePayload() {
+      return {
+        highScore: stats.highScore || 0,
+        totalPopped: stats.totalPopped || 0,
+        maxCombo: stats.maxCombo || 1,
+        levelsCompleted: stats.levelsCompleted || 0,
+        totalShovels: stats.totalShovels || 0,
+        totalGardeners: stats.totalGardeners || 0,
+        totalTractors: stats.totalTractors || 0,
+        totalHarvests: stats.totalHarvests || 0,
+        lastLevel: currentLevel || 1,
+        lastScore: Math.floor(score || 0),
+        lastPlayTime: Date.now(),
+        hasActiveProgress: gameState === 'playing' || (currentLevel > 1) ? 1 : 0,
+        acceptedLegal: acceptedLegal ? 1 : 0
+      };
+    }
+
+    function applySavePayload(data) {
+      if (!data || typeof data !== 'object') return;
+      stats.highScore = data.highScore ?? stats.highScore;
+      stats.totalPopped = data.totalPopped ?? stats.totalPopped;
+      stats.maxCombo = data.maxCombo ?? stats.maxCombo;
+      stats.levelsCompleted = data.levelsCompleted ?? stats.levelsCompleted;
+      stats.totalShovels = data.totalShovels ?? stats.totalShovels;
+      stats.totalGardeners = data.totalGardeners ?? stats.totalGardeners;
+      stats.totalTractors = data.totalTractors ?? stats.totalTractors;
+      stats.totalHarvests = data.totalHarvests ?? stats.totalHarvests;
+      if (data.acceptedLegal) acceptedLegal = true;
+      if (data.lastLevel) {
+        savedProgress = data;
+      }
+    }
+
+    // Встроенные тексты — fallback, если fetch/iframe недоступны в WebView Android
+    const LEGAL_DOCS_INLINE = {
+      terms: {
+        title: 'Пользовательское соглашение',
+        html: `
+          <h1>Пользовательское соглашение</h1>
+          <p>Игра «Ферма Пузырей» (далее — Приложение) размещается на платформе VK Mini Apps / Игры ВКонтакте. Запуская Приложение, вы принимаете настоящее соглашение, а также применимые правила платформы ВКонтакте.</p>
+          <h2>1. Описание</h2>
+          <p>Приложение — HTML5-игра развлекательного характера (аркада «собери группу»). Основные функции доступны внутри клиента ВКонтакте / Одноклассников без обязательного перехода на сторонние сайты.</p>
+          <h2>2. Данные и прогресс</h2>
+          <p>Приложение может сохранять игровой прогресс (уровень, счёт, статистика, настройки) с помощью VK Storage, привязанного к идентификатору пользователя платформы. Обработка данных регулируется Политикой конфиденциальности.</p>
+          <h2>3. Реклама и виртуальные ценности</h2>
+          <p>В Приложении может отображаться реклама рекламной сети VK: вознаграждаемая (только по действию пользователя), между экранами (при переходе к следующему уровню). Игровые инструменты и бонусы используются только внутри Приложения и не обмениваются на реальные деньги.</p>
+          <h2>4. Правила поведения</h2>
+          <p>Запрещается использовать читы, ботов, эксплойты, нарушать работу Приложения или правила платформы ВКонтакте / Одноклассников.</p>
+          <h2>5. Поддержка</h2>
+          <p>По вопросам работы Приложения пользователь может обратиться к разработчику через раздел «О игре» в меню Приложения. Ответ предоставляется в срок, не превышающий 7 календарных дней.</p>
+          <h2>6. Удаление данных</h2>
+          <p>Пользователь может сбросить прогресс кнопкой «Сбросить весь прогресс» в главном меню, а также прекратить использование, удалив Приложение.</p>
+          <h2>7. Возрастные ограничения</h2>
+          <p>Рекомендуемый возрастной рейтинг: <strong>0+</strong>. Контент не содержит насилия, эротики, нецензурной лексики и пользовательского контента.</p>
+          <p><em>Редакция от 08.08.2026.</em></p>
+        `
+      },
+      privacy: {
+        title: 'Политика конфиденциальности',
+        html: `
+          <h1>Политика конфиденциальности</h1>
+          <p>Настоящая Политика описывает обработку данных в игре «Ферма Пузырей» на платформе VK Mini Apps / Игры.</p>
+          <h2>1. Какие данные обрабатываются</h2>
+          <ul>
+            <li>идентификатор пользователя платформы (косвенно через VK Storage и параметры запуска);</li>
+            <li>игровой прогресс: уровень, счёт, статистика, принятие правовых документов;</li>
+            <li>технические события показа рекламы через VK Bridge (без доступа разработчика к содержимому объявлений).</li>
+          </ul>
+          <p>Приложение <strong>не запрашивает</strong> email, телефон, паспортные данные и не требует отдельной регистрации вне ВКонтакте / Одноклассников.</p>
+          <h2>2. Цели</h2>
+          <p>Работа игры, сохранение прогресса между сессиями и устройствами, показ рекламы по правилам платформы, поддержка пользователей.</p>
+          <h2>3. Хранение</h2>
+          <p>Прогресс хранится в VK Storage и/или во временном localStorage браузера при недоступности API. Данные не передаются сторонним рекламным и аналитическим сетям вне механизмов VK.</p>
+          <h2>4. Передача третьим лицам</h2>
+          <p>Разработчик не продаёт персональные данные. Обработка на инфраструктуре VK — по правилам платформы.</p>
+          <h2>5. Права пользователя</h2>
+          <p>Вы можете сбросить прогресс в меню игры, прекратить использование Приложения и обратиться к разработчику с запросом об удалении данных, обрабатываемых Приложением.</p>
+          <h2>6. Контакты</h2>
+          <p>Запросы — через раздел «О игре» в Приложении (ответ не позднее 7 календарных дней).</p>
+          <p><em>Редакция от 08.08.2026.</em></p>
+        `
+      }
+    };
+
+    function closeLegalViewer() {
+      const viewer = document.getElementById('legal-viewer');
+      if (viewer) viewer.classList.remove('active');
+    }
+
+    async function openLegalDoc(kind) {
+      // На Android VK WebView window.open и VKWebAppOpenURL для локальных html часто не работают.
+      // Показываем документ во встроенном оверлее — это требование модерации №3.
+      const key = kind === 'privacy' ? 'privacy' : 'terms';
+      const doc = LEGAL_DOCS_INLINE[key];
+      const titleEl = document.getElementById('legal-title');
+      const bodyEl = document.getElementById('legal-body');
+      const viewer = document.getElementById('legal-viewer');
+      if (!doc || !viewer || !bodyEl) return;
+
+      if (titleEl) titleEl.textContent = doc.title;
+      bodyEl.innerHTML = doc.html;
+      bodyEl.scrollTop = 0;
+      viewer.classList.add('active');
+
+      // Фоном пробуем подтянуть актуальный HTML с хостинга (если доступен)
+      const file = key === 'privacy' ? 'privacy.html' : 'terms.html';
+      try {
+        const res = await fetch(file, { cache: 'no-store' });
+        if (res.ok) {
+          const text = await res.text();
+          const m = text.match(/<div class="box">([\s\S]*?)<\/div>/i);
+          if (m && m[1]) {
+            bodyEl.innerHTML = m[1];
+          }
+        }
+      } catch (e) {
+        // inline content already shown
+      }
+    }
+
+    function showAbout() {
+      hideAllOverlays();
+      document.getElementById('about').classList.add('active');
+    }
+
+    function hideAbout() {
+      document.getElementById('about').classList.remove('active');
+      document.getElementById('menu').classList.add('active');
+    }
+
+    async function acceptLegalAndContinue() {
+      acceptedLegal = true;
+      try {
+        localStorage.setItem('bubblefarm_legal', '1');
+      } catch (e) {}
+      await saveProgressToYandex(true);
+      document.getElementById('legal-gate').classList.remove('active');
+      document.getElementById('menu').classList.add('active');
+      drawStaticMenuBackground();
+      updateContinueButton();
+    }
+
+    function loadLegalFlag() {
+      try {
+        if (localStorage.getItem('bubblefarm_legal') === '1') acceptedLegal = true;
+      } catch (e) {}
+    }
+
+    async function loadProgressFromCloud() {
+      const bridge = getVkBridge();
+      if (vkBridgeReady && bridge) {
+        try {
+          const res = await bridge.send('VKWebAppStorageGet', { keys: [VK_STORAGE_KEY] });
+          const keys = (res && res.keys) || [];
+          const entry = keys.find((k) => k.key === VK_STORAGE_KEY);
+          if (entry && entry.value) {
+            const data = JSON.parse(entry.value);
+            applySavePayload(data);
+            try {
+              localStorage.setItem('bubblefarm_progress', JSON.stringify({
+                lastLevel: data.lastLevel || 1,
+                lastScore: data.lastScore || 0,
+                lastPlayTime: data.lastPlayTime || Date.now(),
+                hasActiveProgress: !!data.hasActiveProgress
+              }));
+              localStorage.setItem('bubblefarm_stats', JSON.stringify(stats));
+            } catch (e) {}
+            console.log('[VK] Прогресс загружен из VK Storage');
+            return true;
+          }
+        } catch (e) {
+          console.warn('[VK] StorageGet error:', e);
+        }
+      }
+      // localStorage — слабый фоллбэк (на VK-хостинге домен меняется после деплоя)
+      try {
+        const raw = localStorage.getItem('bubblefarm_progress');
+        if (raw) {
+          const data = JSON.parse(raw);
+          savedProgress = data;
+          return !!data.lastLevel;
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    async function saveProgressToYandex(force = false) {
+      // Имя оставлено для совместимости вызовов; пишет в VK Storage + localStorage
+      const payload = buildSavePayload();
+      const progressData = {
+        lastLevel: payload.lastLevel,
+        lastScore: payload.lastScore,
+        lastPlayTime: payload.lastPlayTime,
+        hasActiveProgress: !!payload.hasActiveProgress
+      };
+
+      try {
+        localStorage.setItem('bubblefarm_progress', JSON.stringify(progressData));
+        localStorage.setItem('bubblefarm_stats', JSON.stringify(stats));
+      } catch (e) {}
+
+      savedProgress = { ...savedProgress, ...payload };
+
+      const bridge = getVkBridge();
+      if (!vkBridgeReady || !bridge) return;
+
+      try {
+        const value = JSON.stringify(payload);
+        // Лимит VK Storage: 4096 символов
+        if (value.length > 4000) {
+          console.warn('[VK] save payload too large', value.length);
+        }
+        await bridge.send('VKWebAppStorageSet', { key: VK_STORAGE_KEY, value });
+        console.log('[VK] Прогресс сохранён в VK Storage');
+
+        if (payload.lastScore > 0 && payload.lastScore >= (stats.highScore || 0)) {
+          submitScoreToLeaderboard(payload.lastScore);
+        }
+      } catch (e) {
+        console.warn('[VK] StorageSet error:', e);
+      }
+    }
+
+    // Interstitial — VKWebAppShowNativeAds ad_format: interstitial
+    function showInterstitialAd(onCloseCallback) {
+      const now = Date.now();
+      const bridge = getVkBridge();
+      if (!vkBridgeReady || !bridge || adsShowing || now - lastAdTime < 45000) {
+        if (onCloseCallback) onCloseCallback();
+        return;
+      }
+
+      lastAdTime = now;
+      adsShowing = true;
+      const wasPlaying = gameState === 'playing';
+      if (wasPlaying) gameState = 'paused';
+      platformGameplayStop();
+      suspendAudio();
+
+      const finish = () => {
+        adsShowing = false;
+        resumeAudio();
+        if (wasPlaying && gameState === 'paused') {
+          gameState = 'playing';
+          platformGameplayStart();
+          ensureGameLoop();
+        }
+        // предзагрузка следующей
+        try { bridge.send('VKWebAppCheckNativeAds', { ad_format: 'interstitial' }); } catch (e) {}
+        if (onCloseCallback) onCloseCallback();
+      };
+
+      bridge.send('VKWebAppShowNativeAds', { ad_format: 'interstitial' })
+        .then((data) => {
+          console.log('[VK] Interstitial result', data && data.result);
+          finish();
+        })
+        .catch((err) => {
+          console.warn('[VK] Interstitial error', err);
+          finish();
+        });
+    }
+
+    // Rewarded — ad_format: reward; result===true → награда
+    function showRewardedAd(onRewarded, onClose) {
+      const wasPlaying = gameState === 'playing';
+      const bridge = getVkBridge();
+
+      if (!vkBridgeReady || !bridge || adsShowing) {
+        console.log('[VK] Rewarded fallback (локально) — награда');
+        if (onRewarded) onRewarded();
+        if (wasPlaying) {
+          gameState = 'playing';
+          platformGameplayStart();
+        }
+        if (onClose) onClose();
+        return;
+      }
+
+      adsShowing = true;
+      if (wasPlaying) gameState = 'paused';
+      platformGameplayStop();
+      suspendAudio();
+
+      const finish = (ok) => {
+        if (ok && onRewarded) onRewarded();
+        adsShowing = false;
+        resumeAudio();
+        // Если коллбек не перевёл в playing (напр. пополнение инструментов) — возобновляем сами
+        if (wasPlaying && gameState === 'paused') {
+          gameState = 'playing';
+          platformGameplayStart();
+          ensureGameLoop();
+        } else if (gameState === 'playing') {
+          platformGameplayStart();
+          ensureGameLoop();
+        }
+        try { bridge.send('VKWebAppCheckNativeAds', { ad_format: 'reward' }); } catch (e) {}
+        if (onClose && !ok) onClose();
+      };
+
+      bridge.send('VKWebAppShowNativeAds', { ad_format: 'reward', use_waterfall: true })
+        .then((data) => {
+          const ok = !!(data && data.result);
+          console.log('[VK] Rewarded result', ok);
+          finish(ok);
+        })
+        .catch((err) => {
+          console.warn('[VK] Rewarded error', err);
+          finish(false);
+        });
+    }
+
+    // Лидерборд ВК: показ с user_result (сохранение на платформе — secure.addAppEvent, сервер)
+    function submitScoreToLeaderboard(scoreValue) {
+      // На клиенте только кешируем для показа бокса; platform score — через secure API
+      try {
+        window.__vkLastScore = Math.floor(scoreValue);
+      } catch (e) {}
+    }
+
+    async function showVkLeaderboard() {
+      const bridge = getVkBridge();
+      if (!vkBridgeReady || !bridge) {
+        await showAlertDialog(
+          'Таблица лидеров доступна при запуске из ВКонтакте. Лучший счёт: ' + (stats.highScore || 0),
+          'Лидерборд'
+        );
+        return;
+      }
+      try {
+        const userResult = Math.max(1, Math.floor(stats.highScore || score || 1));
+        await bridge.send('VKWebAppShowLeaderBoardBox', {
+          user_result: Math.min(userResult, 10000000),
+          global: 1
+        });
+      } catch (e) {
+        console.warn('[VK] LeaderBoard error', e);
+        await showAlertDialog(
+          'Не удалось открыть таблицу. Лучший счёт: ' + (stats.highScore || 0) +
+          '\n\nВключите «Таблицу результатов» в настройках приложения ВК.',
+          'Лидерборд'
+        );
+      }
+    }
+
+    async function inviteVkFriends() {
+      const bridge = getVkBridge();
+      if (!vkBridgeReady || !bridge) {
+        await showAlertDialog('Приглашения друзей доступны внутри ВКонтакте.', 'Друзья');
+        return;
+      }
+      try {
+        await bridge.send('VKWebAppShowInviteBox', {});
+      } catch (e) {
+        console.warn('[VK] Invite error', e);
+        await showAlertDialog('Не удалось открыть приглашения. Попробуйте позже.', 'Друзья');
+      }
+    }
+
+    async function shareVkGame() {
+      const bridge = getVkBridge();
+      if (!vkBridgeReady || !bridge) {
+        await showAlertDialog('Шеринг доступен внутри ВКонтакте.', 'Поделиться');
+        return;
+      }
+      try {
+        await bridge.send('VKWebAppShare', {
+          link: 'https://vk.com/app' + VK_APP_ID
+        });
+      } catch (e) {
+        // fallback — wall post box
+        try {
+          await bridge.send('VKWebAppShowWallPostBox', {
+            message: 'Играю в «Ферма Пузырей»! 🌱 Собирай урожай пузырьков-овощей!',
+            attachments: 'https://vk.com/app' + VK_APP_ID
+          });
+        } catch (e2) {
+          console.warn('[VK] Share error', e2);
+          await showAlertDialog('Не удалось поделиться. Попробуйте позже.', 'Поделиться');
+        }
+      }
+    }
+
+    async function addVkToFavorites() {
+      const bridge = getVkBridge();
+      if (!vkBridgeReady || !bridge) {
+        await showAlertDialog('Добавление в избранное доступно внутри ВКонтакте.', 'Избранное');
+        return;
+      }
+      try {
+        await bridge.send('VKWebAppAddToFavorites');
+        await showAlertDialog('Спасибо! Игра добавлена в избранное (или уже была там).', 'Избранное');
+      } catch (e) {
+        console.warn('[VK] Favorites error', e);
+        await showAlertDialog('Не удалось добавить в избранное. Попробуйте позже.', 'Избранное');
+      }
+    }
+
+    // Legacy-алиасы
+    const showYandexLeaderboard = showVkLeaderboard;
+    async function requestYandexReview() { return addVkToFavorites(); }
+
+    // ======================= РЕКЛАМА ЗА ИНСТРУМЕНТЫ (VK rewarded, по одному tool) =======================
+    async function offerRewardedForTools(toolId) {
+      if (!toolId || adsShowing) return;
+
+      const toolNames = {
+        shovel: 'Лопата',
+        gardener: 'Огородник',
+        tractor: 'Трактор',
+        harvest: 'Урожай'
+      };
+      const name = toolNames[toolId] || 'Инструмент';
+      const amount = (TOOL_REWARD_AMOUNT && TOOL_REWARD_AMOUNT[toolId]) || 2;
+
+      // Уже есть запас — не открываем рекламу
+      if ((toolUses[toolId] || 0) > 0) return;
+
+      const ok = await showConfirmDialog(
+        `«${name}» закончился.\n\nПосмотреть рекламу ВКонтакте, чтобы получить +${amount}?`,
+        'Пополнить инструмент'
+      );
+      if (!ok) return;
+
+      showRewardedAd(() => {
+        // Награда только за выбранный инструмент
+        toolUses[toolId] = (toolUses[toolId] || 0) + amount;
+        if (activeTool && (toolUses[activeTool] || 0) <= 0) activeTool = null;
+
+        updateToolUI();
+
+        spawnFloatingText(SHOOTER_X, SHOOTER_Y - 70, `+${amount} ${name}!`, {
+          size: 15,
+          color: '#a8d07a',
+          vy: -2.2,
+          life: 50
+        });
+
+        saveProgressToYandex();
+      }, () => {
+        // Реклама закрыта без награды — панель уже в состоянии «0 / реклама»
+        try { updateToolUI(); } catch (e) {}
+      });
+    }
+
+    // ======================= ПРОДОЛЖЕНИЕ СОХРАНЁННОГО ПРОГРЕССА =======================
+    async function loadSavedProgress() {
+      // Сначала облако VK (если ещё не грузили)
+      if (!savedProgress || !savedProgress.lastLevel) {
+        await loadProgressFromCloud();
+      }
+      if (savedProgress && savedProgress.lastLevel) return true;
+
+      try {
+        const raw = localStorage.getItem('bubblefarm_progress');
+        if (raw) {
+          savedProgress = JSON.parse(raw);
+          return !!savedProgress.lastLevel;
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    function hasSavedProgress() {
+      return savedProgress && savedProgress.lastLevel && savedProgress.lastLevel > 1;
+    }
+
+    function continueSavedGame() {
+      if (!gameReady) return;
+      if (!savedProgress || !savedProgress.lastLevel) {
+        startGame();
+        return;
+      }
+
+      hideAllOverlays();
+      document.getElementById('ingame-hud').style.display = 'block';
+      document.getElementById('tools-hud').style.display = 'flex';
+
+      const targetLevel = Math.min(savedProgress.lastLevel, LEVELS.length);
+
+      score = savedProgress.lastScore || 0;
+      currentLevel = targetLevel;
+
+      setupLevel(targetLevel);
+
+      // Запас инструментов с уровня (все 4 доступны), если в сейве нет — дефолт 1 ур.
+      const lvlTools = (LEVELS.find(l => l.num === targetLevel) || LEVELS[0]).tools;
+      toolUses = {
+        shovel: lvlTools.shovel || 3,
+        gardener: lvlTools.gardener || 1,
+        tractor: lvlTools.tractor || 1,
+        harvest: lvlTools.harvest || 1
+      };
+      shotsUntilSwap = 0;
+
+      updateToolUI();
+      gameState = 'playing';
+      resizeCanvas();
+      platformGameplayStart();
+      ensureGameLoop();
+
+      console.log('[VK] Продолжен уровень', targetLevel, 'со счётом', score);
+    }
+
+    // ======================= ASSET LOADING =======================
+    function loadAssets() {
+      return new Promise((resolve) => {
+        let loaded = 0;
+        const total = 7 + 2; // 7 bubbles + bg + shovel
+
+        function done() {
+          loaded++;
+          if (loaded >= total) resolve();
+        }
+
+        for (let i = 0; i < 7; i++) {
+          const img = new Image();
+          img.onload = done;
+          img.onerror = done;
+          img.src = `bubble${i}.png`;
+          BUBBLE_IMGS[i] = img;
+        }
+
+        BG_IMG = new Image();
+        BG_IMG.onload = done;
+        BG_IMG.onerror = done;
+        BG_IMG.src = 'BG-farm.png';
+
+        SHOVEL_IMG = new Image();
+        SHOVEL_IMG.onload = done;
+        SHOVEL_IMG.onerror = done;
+        SHOVEL_IMG.src = 'shovel.png';
+      });
+    }
+
+    function updateToolButtonsAfterLoad() {
+      // nothing extra, updateToolUI called when entering play
+    }
+
+    // ======================= ЯЗЫК =======================
+    function applyLanguageFromLaunch() {
+      if (gameLang && gameLang !== 'ru') {
+        document.documentElement.lang = gameLang === 'en' ? 'en' : 'ru';
+        return;
+      }
+      let lang = 'ru';
+      try {
+        const lp = parseVkLaunchParams();
+        if (lp.vk_language) lang = String(lp.vk_language).toLowerCase().slice(0, 2);
+        else if (navigator.language) lang = String(navigator.language).toLowerCase().slice(0, 2);
+      } catch (e) {}
+      gameLang = lang || 'ru';
+      document.documentElement.lang = gameLang === 'en' ? 'en' : 'ru';
+      console.log('[VK] Язык:', gameLang);
+    }
+
+    // ======================= INIT =======================
+    // 1) VKWebAppInit (спиннер ВК)
+    // 2) ассеты
+    // 3) облачный прогресс
+    // 4) меню + input
+    async function init() {
+      gameState = 'booting';
+      gameReady = false;
+
+      // Страховка: экран загрузки не может висеть дольше 8 сек
+      const bootFailsafe = setTimeout(() => {
+        const boot = document.getElementById('boot-loading');
+        if (boot && !boot.classList.contains('hidden')) {
+          console.warn('[Init] failsafe: скрываем экран загрузки');
+          boot.classList.add('hidden');
+          gameState = 'menu';
+          gameReady = true;
+          try {
+            loadLegalFlag();
+            if (!acceptedLegal) {
+              document.getElementById('menu').classList.remove('active');
+              document.getElementById('legal-gate').classList.add('active');
+            } else {
+              document.getElementById('legal-gate').classList.remove('active');
+              document.getElementById('menu').classList.add('active');
+            }
+          } catch (e) {}
+        }
+      }, 8000);
+
+      try {
+        // Локальный фоллбэк до облака (на VK-хостинге localStorage часто сбрасывается после деплоя)
+        stats = loadStats();
+
+        // VKWebAppInit + Storage + ads preload (с таймаутами / skip вне ВК)
+        await initVkBridge();
+        applyLanguageFromLaunch();
+
+        const blockBrowserChrome = (e) => { e.preventDefault(); };
+        document.addEventListener('contextmenu', blockBrowserChrome, { capture: true });
+        document.addEventListener('selectstart', blockBrowserChrome, { capture: true });
+        document.addEventListener('dragstart', blockBrowserChrome, { capture: true });
+
+        try {
+          await loadAssets();
+        } catch (e) {
+          console.warn('[Init] Ошибка загрузки ассетов', e);
+        }
+
+        // Облако поверх локального
+        let hasProgress = false;
+        try {
+          hasProgress = await Promise.race([
+            loadSavedProgress(),
+            new Promise((resolve) => setTimeout(() => resolve(false), 2500))
+          ]);
+        } catch (e) {
+          hasProgress = false;
+        }
+        const continueBtn = document.getElementById('continue-btn');
+        if (continueBtn) {
+          if (hasProgress && hasSavedProgress()) {
+            continueBtn.style.display = 'inline-block';
+            continueBtn.textContent = `ПРОДОЛЖИТЬ УРОВЕНЬ ${savedProgress.lastLevel}`;
+          } else {
+            continueBtn.style.display = 'none';
+          }
+        }
+
+        drawStaticMenuBackground();
+        setupInput();
+        loadLegalFlag();
+
+        const boot = document.getElementById('boot-loading');
+        if (boot) boot.classList.add('hidden');
+
+        gameState = 'menu';
+        gameReady = true;
+
+        // До принятия ПС/политики меню игры не показываем (п. 1.1.4)
+        if (!acceptedLegal) {
+          document.getElementById('menu').classList.remove('active');
+          document.getElementById('legal-gate').classList.add('active');
+        } else {
+          document.getElementById('legal-gate').classList.remove('active');
+          document.getElementById('menu').classList.add('active');
+          drawStaticMenuBackground();
+        }
+
+        console.log(
+          '%c[Ферма Пузырей / VK] Готово. vkBridge=' + vkBridgeReady +
+          ' Space — выстрел, 1-4 — инструменты, Esc — пауза, R — рестарт.',
+          'color:#8c5528'
+        );
+      } catch (err) {
+        console.error('[Init] fatal', err);
+        const boot = document.getElementById('boot-loading');
+        if (boot) boot.classList.add('hidden');
+        gameState = 'menu';
+        gameReady = true;
+        try {
+          document.getElementById('menu').classList.add('active');
+        } catch (e) {}
+      } finally {
+        clearTimeout(bootFailsafe);
+      }
+    }
+
+    // Boot
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>

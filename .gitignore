@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build archives / local junk
+build.zip
+*.zip
+moderation-overlap.png
+*.log
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env / secrets
+.env
+.env.*
+*.pem
+
+# OS
+Desktop.ini
